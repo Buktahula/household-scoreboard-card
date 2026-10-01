@@ -1,7 +1,7 @@
 # 🏆 Household Scoreboard Card for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/default)
-[![GitHub release](https://img.shields.io/github/v/release/alexanderriechel/household-scoreboard-card?include_prereleases)](https://github.com/alexanderriechel/household-scoreboard-card/releases)
+[![GitHub release](https://img.shields.io/github/v/release/buktahula/household-scoreboard-card?include_prereleases)](https://github.com/buktahula/household-scoreboard-card/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Ein spielerisches **Haushalts-Scoreboard & Gamification-Card** für Home Assistant Lovelace Dashboards. 
@@ -35,7 +35,7 @@ Motiviere die ganze Familie oder WG bei täglichen Aufgaben: Wer eine Aufgabe er
 2. Klicke oben rechts auf das Drei-Punkte-Menü `⋮` und wähle **Benutzerdefinierte Repositories** (*Custom repositories*).
 3. Gib die Repository-URL ein:
    ```text
-   https://github.com/alexanderriechel/household-scoreboard-card
+   https://github.com/buktahula/household-scoreboard-card
    ```
 4. Wähle als Typ: **Lovelace** (oder *Dashboard* / *Plugin*).
 5. Klicke auf **Hinzufügen** (*Add*).
@@ -46,7 +46,7 @@ Motiviere die ganze Familie oder WG bei täglichen Aufgaben: Wer eine Aufgabe er
 
 ### Methode 2: Manuelle Installation
 
-1. Lade die Datei [`household-scoreboard-card.js`](https://raw.githubusercontent.com/alexanderriechel/household-scoreboard-card/main/household-scoreboard-card.js) herunter.
+1. Lade die Datei [`household-scoreboard-card.js`](https://raw.githubusercontent.com/buktahula/household-scoreboard-card/main/household-scoreboard-card.js) herunter.
 2. Kopiere die Datei in deinen Home Assistant Ordner `config/www/` (z. B. `config/www/household-scoreboard-card.js`).
 3. Gehe in Home Assistant zu **Einstellungen** ➔ **Dashboards** ➔ **Drei Punkte oben rechts** ➔ **Ressourcen**.
 4. Klicke auf **Ressource hinzufügen**:

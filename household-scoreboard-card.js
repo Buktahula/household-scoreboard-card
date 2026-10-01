@@ -2,7 +2,7 @@
  * Household Scoreboard Card for Home Assistant
  * A gamified household chore and task scoreboard card with podium, levels, XP progress, and quick actions.
  * 
- * GitHub: https://github.com/alexanderriechel/household-scoreboard-card
+ * GitHub: https://github.com/buktahula/household-scoreboard-card
  * License: MIT
  */
 
@@ -1038,5 +1038,5 @@ window.customCards.push({
   name: 'Household Scoreboard Card',
   description: 'Ein spielerisches Haushalts-Scoreboard mit Siegertreppchen, Leveln, XP-Fortschritt und Schnell-Aktionen.',
   preview: true,
-  documentationURL: 'https://github.com/alexanderriechel/household-scoreboard-card'
+  documentationURL: 'https://github.com/buktahula/household-scoreboard-card'
 });

@@ -13,10 +13,10 @@
     "chores"
   ],
   "main": "household-scoreboard-card.js",
-  "author": "Alexander Riechel",
+  "author": "Alexander Riechel <alexander.riechel@gmail.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alexanderriechel/household-scoreboard-card.git"
+    "url": "https://github.com/buktahula/household-scoreboard-card.git"
   }
 }
