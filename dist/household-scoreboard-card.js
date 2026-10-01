@@ -40,7 +40,10 @@ class HouseholdScoreboardCard extends HTMLElement {
     this._config = {};
     this._hass = null;
     this._lastStateHash = '';
+    this._lastTodoHash = '';
     this._optimisticDeltas = {};
+    this._todoItems = [];
+    this._isResettingTodos = false;
   }
 
   static getConfigElement() {
@@ -48,9 +51,10 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 
   static getStubConfig(hass, entities) {
-    // Attempt auto-discovery of counter or person entities
+    // Attempt auto-discovery of counter, person, and todo entities
     const counters = entities ? entities.filter(e => e.startsWith('counter.')) : [];
     const persons = entities ? entities.filter(e => e.startsWith('person.')) : [];
+    const todo = entities ? entities.find(e => e.startsWith('todo.')) : '';
     
     let defaultPlayers = [
       { name: 'Alex', entity: 'counter.punkte_alex', person: 'person.alex' },
@@ -77,6 +81,9 @@ class HouseholdScoreboardCard extends HTMLElement {
       show_ranks: true,
       show_actions: true,
       show_reset: true,
+      todo_entity: todo || '',
+      show_todo: !!todo,
+      todo_title: '📋 Aufgaben & Quests',
       unit: 'XP',
       players: defaultPlayers
     };
@@ -99,27 +106,47 @@ class HouseholdScoreboardCard extends HTMLElement {
       unit: 'XP',
       action_step: 1,
       allow_decrement: true,
+      todo_entity: '',
+      show_todo: true,
+      todo_title: '📋 Aufgaben & Quests',
       levels: DEFAULT_LEVELS,
       players: [],
       ...config
     };
 
     this._render();
+    if (this._hass && this._config.todo_entity) {
+      this._fetchTodoItems();
+    }
   }
 
   set hass(hass) {
     this._hass = hass;
     if (!this._config || !this._config.players) return;
 
-    // Check if relevant states have changed to prevent unnecessary re-rendering
+    // Check if player states have changed
     const currentHash = this._config.players.map(p => {
       const s = hass.states[p.entity];
       const personState = p.person ? hass.states[p.person] : null;
       return `${p.entity}:${s ? s.state : 'null'}:${personState ? personState.attributes.entity_picture : ''}`;
     }).join('|');
 
-    if (currentHash !== this._lastStateHash) {
+    // Check if todo entity state has changed
+    let todoHash = '';
+    if (this._config.todo_entity && hass.states[this._config.todo_entity]) {
+      const ts = hass.states[this._config.todo_entity];
+      todoHash = `${this._config.todo_entity}:${ts.state}:${ts.last_updated}`;
+    }
+
+    const stateChanged = currentHash !== this._lastStateHash;
+    const todoChanged = todoHash !== this._lastTodoHash;
+
+    if (stateChanged || todoChanged) {
       this._lastStateHash = currentHash;
+      if (todoChanged) {
+        this._lastTodoHash = todoHash;
+        this._fetchTodoItems();
+      }
       this._updateData();
     }
   }
@@ -238,8 +265,12 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     // Call Home Assistant service
     const domain = player.entity.split('.')[0];
+    const cur = this._getPlayerPoints(player);
     if (domain === 'counter') {
-      if (amount > 0) {
+      const hasSetValue = this._hass && this._hass.services && this._hass.services.counter && this._hass.services.counter.set_value;
+      if (hasSetValue && Math.abs(amount) > 1) {
+        this._callService('counter', 'set_value', { entity_id: player.entity, value: cur });
+      } else if (amount > 0) {
         for (let i = 0; i < amount; i++) {
           this._callService('counter', 'increment', { entity_id: player.entity });
         }
@@ -290,6 +321,388 @@ class HouseholdScoreboardCard extends HTMLElement {
     this._optimisticDeltas = {};
     this._updateData();
   }
+
+  async _fetchTodoItems() {
+    if (!this._hass || !this._config.todo_entity) return;
+    try {
+      const res = await this._hass.callWS({
+        type: 'todo/item/list',
+        entity_id: this._config.todo_entity
+      });
+      if (res && res.items) {
+        this._todoItems = res.items;
+        await this._checkAndAutoReset();
+        this._updateTodoSection();
+      }
+    } catch (err) {
+      console.warn('HouseholdScoreboardCard: error fetching todo items', err);
+    }
+  }
+
+  _parseTodoMetadata(item) {
+    const desc = item.description || '';
+    const dueDateStr = item.due || item.due_date;
+
+    // 1. XP (default 10)
+    const xpMatch = desc.match(/(?:\[|\b)(?:xp|punkte|points)\s*[:=]\s*(\d+)(?:\]|\b)/i);
+    const baseXp = xpMatch ? parseInt(xpMatch[1], 10) : 10;
+
+    // 2. Reset interval in days
+    // e.g. reset: 3 or reset: 1 or reset: daily (1) or reset: weekly (7)
+    let resetDays = null;
+    const resetMatch = desc.match(/(?:\[|\b)(?:reset|recur|repeat|intervall|tage|days)\s*[:=]\s*(\w+)(?:\]|\b)/i);
+    if (resetMatch) {
+      const val = resetMatch[1].toLowerCase();
+      if (val === 'daily' || val === 'taeglich' || val === 'täglich') resetDays = 1;
+      else if (val === 'weekly' || val === 'woechentlich' || val === 'wöchentlich') resetDays = 7;
+      else if (!isNaN(parseInt(val, 10))) resetDays = parseInt(val, 10);
+    }
+
+    // 3. Bonus per day overdue
+    const bonusMatch = desc.match(/(?:\[|\b)(?:bonus|kopfgeld|escalate|bounty|plus)\s*[:=]\s*\+?(\d+)(?:\]|\b)/i);
+    const bonusPerDay = bonusMatch ? parseInt(bonusMatch[1], 10) : 0;
+
+    // 4. Last done timestamp (YYYY-MM-DD)
+    const doneMatch = desc.match(/(?:\[|\b)(?:done|last_done|erledigt)\s*[:=]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})(?:\]|\b)/i);
+    const lastDone = doneMatch ? doneMatch[1] : null;
+
+    // 5. Due date resolution
+    const dueTagMatch = desc.match(/(?:\[|\b)(?:due|faellig|fällig)\s*[:=]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})(?:\]|\b)/i);
+    const effectiveDueDate = (dueDateStr ? dueDateStr.split('T')[0] : null) || (dueTagMatch ? dueTagMatch[1] : null);
+
+    // 6. Overdue days calculation
+    let overdueDays = 0;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (effectiveDueDate) {
+      const [y, m, d] = effectiveDueDate.split('-').map(Number);
+      const dueDate = new Date(y, m - 1, d);
+      const diffTime = today.getTime() - dueDate.getTime();
+      overdueDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+    } else if (lastDone && resetDays) {
+      const [y, m, d] = lastDone.split('-').map(Number);
+      const targetDue = new Date(y, m - 1, d + resetDays);
+      const diffTime = today.getTime() - targetDue.getTime();
+      overdueDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+    }
+
+    const extraXp = overdueDays * bonusPerDay;
+    const totalXp = baseXp + extraXp;
+
+    // Clean description without metadata brackets for neat UI
+    const cleanDesc = desc
+      .replace(/\[\s*(?:xp|punkte|points|reset|recur|repeat|intervall|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig)\s*[:=][^\]]+\]/gi, '')
+      .replace(/(?:^|\n)\s*(?:xp|punkte|points|reset|recur|repeat|intervall|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig)\s*[:=].*$/gim, '')
+      .trim();
+
+    return {
+      baseXp,
+      resetDays,
+      bonusPerDay,
+      lastDone,
+      effectiveDueDate,
+      overdueDays,
+      extraXp,
+      totalXp,
+      cleanDesc
+    };
+  }
+
+  async _checkAndAutoReset() {
+    if (!this._todoItems || !this._config.todo_entity || this._isResettingTodos) return;
+    this._isResettingTodos = true;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    let resetCount = 0;
+    try {
+      for (const item of this._todoItems) {
+        if (item.status === 'completed') {
+          const meta = this._parseTodoMetadata(item);
+          if (meta.resetDays && meta.lastDone) {
+            const [y, m, d] = meta.lastDone.split('-').map(Number);
+            const lastDoneDate = new Date(y, m - 1, d);
+            const diffDays = Math.floor((today.getTime() - lastDoneDate.getTime()) / (1000 * 60 * 60 * 24));
+
+            if (diffDays >= meta.resetDays) {
+              resetCount++;
+              await this._hass.callWS({
+                type: 'todo/item/update',
+                entity_id: this._config.todo_entity,
+                item: item.id,
+                status: 'needs_action',
+                due_date: todayStr
+              });
+              item.status = 'needs_action';
+              item.due = todayStr;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('HouseholdScoreboardCard: error auto-resetting items', e);
+    } finally {
+      this._isResettingTodos = false;
+    }
+
+    if (resetCount > 0) {
+      this._updateTodoSection();
+    }
+  }
+
+  _updateTodoSection() {
+    if (!this.shadowRoot) return;
+    const todoWrapper = this.shadowRoot.getElementById('todo-wrapper');
+    const todoSection = this.shadowRoot.getElementById('todo-section');
+    const todoTitleText = this.shadowRoot.getElementById('todo-title-text');
+    const todoCounterBadge = this.shadowRoot.getElementById('todo-counter-badge');
+    if (!todoWrapper || !todoSection) return;
+
+    if (!this._config.todo_entity || this._config.show_todo === false) {
+      todoWrapper.style.display = 'none';
+      return;
+    }
+
+    todoWrapper.style.display = 'block';
+    if (todoTitleText) {
+      todoTitleText.textContent = this._config.todo_title || 'Aufgaben & Quests';
+    }
+
+    const items = (this._todoItems || []).filter(item => item.status === 'needs_action');
+
+    if (todoCounterBadge) {
+      todoCounterBadge.textContent = `${items.length} offen`;
+      todoCounterBadge.style.display = items.length > 0 ? 'inline-block' : 'none';
+    }
+
+    if (items.length === 0) {
+      todoSection.innerHTML = `
+        <div class="todo-empty">
+          <span>🎉</span> Alle Aufgaben erledigt! Ausgezeichnete Teamarbeit.
+        </div>
+      `;
+      return;
+    }
+
+    const unit = this._config.unit || 'XP';
+    todoSection.innerHTML = '';
+
+    items.forEach(item => {
+      const meta = this._parseTodoMetadata(item);
+      const row = document.createElement('div');
+      row.className = `todo-card ${meta.overdueDays > 0 ? 'overdue' : ''}`;
+
+      let badgesHtml = `<span class="todo-pill badge-xp">⭐ +${meta.totalXp} ${unit}</span>`;
+
+      if (meta.extraXp > 0) {
+        badgesHtml += `<span class="todo-pill badge-bounty" title="${meta.overdueDays} Tag(e) überfällig (+${meta.bonusPerDay} XP/Tag)">🔥 +${meta.extraXp} Kopfgeld</span>`;
+      }
+
+      if (meta.resetDays) {
+        const resetLabel = meta.resetDays === 1 ? 'Täglich' : `Alle ${meta.resetDays} Tage`;
+        badgesHtml += `<span class="todo-pill badge-reset" title="Wiederholt sich alle ${meta.resetDays} Tage">🔄 ${resetLabel}</span>`;
+      }
+
+      if (meta.overdueDays > 0) {
+        badgesHtml += `<span class="todo-pill badge-overdue">⚠️ ${meta.overdueDays}d überfällig</span>`;
+      } else if (meta.effectiveDueDate) {
+        badgesHtml += `<span class="todo-pill badge-due">📅 ${meta.effectiveDueDate}</span>`;
+      }
+
+      row.innerHTML = `
+        <button class="todo-check-btn" title="Aufgabe erledigen">
+          <span class="check-icon">✓</span>
+        </button>
+        <div class="todo-info">
+          <div class="todo-summary">${item.summary || 'Unbenannte Aufgabe'}</div>
+          ${meta.cleanDesc ? `<div class="todo-desc">${meta.cleanDesc}</div>` : ''}
+          <div class="todo-badges">${badgesHtml}</div>
+        </div>
+      `;
+
+      const checkBtn = row.querySelector('.todo-check-btn');
+      const handleComplete = (e) => {
+        e.stopPropagation();
+        this._promptTaskCompletion(item, meta);
+      };
+      checkBtn.addEventListener('click', handleComplete);
+      row.addEventListener('click', handleComplete);
+
+      todoSection.appendChild(row);
+    });
+  }
+
+  _promptTaskCompletion(item, meta) {
+    const players = this._getSortedPlayers();
+    if (players.length === 0) {
+      alert('Bitte lege zuerst mindestens einen Spieler in den Card-Einstellungen an!');
+      return;
+    }
+
+    if (players.length === 1) {
+      this._completeTask(item, players[0], meta);
+      return;
+    }
+
+    this._openPlayerModal(item, meta, players);
+  }
+
+  _openPlayerModal(item, meta, players) {
+    const modal = this.shadowRoot.getElementById('player-modal');
+    const taskTitle = this.shadowRoot.getElementById('modal-task-title');
+    const xpBadge = this.shadowRoot.getElementById('modal-xp-badge');
+    const grid = this.shadowRoot.getElementById('modal-players-grid');
+    if (!modal || !grid) return;
+
+    const unit = this._config.unit || 'XP';
+    taskTitle.textContent = item.summary || 'Aufgabe';
+    xpBadge.innerHTML = `⭐ <b>+${meta.totalXp} ${unit}</b> ${meta.extraXp > 0 ? `<span style="color:#ff5722;">(inkl. 🔥 +${meta.extraXp} Kopfgeld)</span>` : ''}`;
+
+    grid.innerHTML = '';
+    players.forEach(p => {
+      const card = document.createElement('button');
+      card.className = 'modal-player-card';
+
+      const avatarHtml = p.avatar
+        ? `<img class="modal-player-avatar" style="border-color:${p.color}" src="${p.avatar}" alt="${p.name}" />`
+        : `<div class="modal-player-avatar" style="background:${p.color}; border-color:${p.color}">${p.initials}</div>`;
+
+      card.innerHTML = `
+        ${avatarHtml}
+        <span class="modal-player-name">${p.name}</span>
+        <span class="modal-player-score">${p.pts} ${unit}</span>
+      `;
+
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._closePlayerModal();
+        this._completeTask(item, p, meta);
+      });
+
+      grid.appendChild(card);
+    });
+
+    modal.style.display = 'flex';
+  }
+
+  _closePlayerModal() {
+    const modal = this.shadowRoot.getElementById('player-modal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async _completeTask(item, player, meta) {
+    this._forwardHaptic('success');
+    this._fireConfetti();
+
+    // 1. Award XP to player
+    this._adjustScore(player, meta.totalXp);
+
+    // 2. Prepare description with [done: YYYY-MM-DD]
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    
+    let updatedDesc = item.description || '';
+    if (/\[done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\]/i.test(updatedDesc)) {
+      updatedDesc = updatedDesc.replace(/\[done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\]/i, `[done: ${todayStr}]`);
+    } else if (/done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}/i.test(updatedDesc)) {
+      updatedDesc = updatedDesc.replace(/done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}/i, `done: ${todayStr}`);
+    } else if (meta.resetDays) {
+      updatedDesc = (updatedDesc + `\n[done: ${todayStr}]`).trim();
+    }
+
+    // Optimistically update local item state
+    item.status = 'completed';
+    this._updateTodoSection();
+
+    // 3. Call Home Assistant API to mark completed and update description
+    try {
+      await this._hass.callWS({
+        type: 'todo/item/update',
+        entity_id: this._config.todo_entity,
+        item: item.id,
+        status: 'completed',
+        description: updatedDesc
+      });
+    } catch (err) {
+      console.warn('HouseholdScoreboardCard: error updating todo item', err);
+      try {
+        await this._callService('todo', 'update_item', {
+          entity_id: this._config.todo_entity,
+          item: item.id,
+          status: 'completed'
+        });
+      } catch (e) {
+        console.error('HouseholdScoreboardCard: service fallback failed', e);
+      }
+    }
+  }
+
+  _fireConfetti() {
+    const canvas = this.shadowRoot.getElementById('confetti-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    canvas.width = canvas.offsetWidth || 350;
+    canvas.height = canvas.offsetHeight || 400;
+    canvas.style.display = 'block';
+
+    const colors = ['#ffd700', '#ff5722', '#00e676', '#448aff', '#ff4081', '#e040fb'];
+    const particles = [];
+    const count = 45;
+
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: canvas.width / 2 + (Math.random() - 0.5) * 60,
+        y: canvas.height * 0.4 + (Math.random() - 0.5) * 40,
+        vx: (Math.random() - 0.5) * 8,
+        vy: -Math.random() * 7 - 3,
+        size: Math.random() * 6 + 4,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        rotation: Math.random() * 360,
+        rSpeed: (Math.random() - 0.5) * 10,
+        alpha: 1
+      });
+    }
+
+    let frames = 0;
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.25;
+        p.rotation += p.rSpeed;
+        p.alpha -= 0.015;
+
+        if (p.alpha > 0) {
+          alive = true;
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.translate(p.x, p.y);
+          ctx.rotate((p.rotation * Math.PI) / 180);
+          ctx.fillStyle = p.color;
+          ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.7);
+          ctx.restore();
+        }
+      });
+
+      frames++;
+      if (alive && frames < 90) {
+        requestAnimationFrame(animate);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.style.display = 'none';
+      }
+    };
+    requestAnimationFrame(animate);
+  }
+
 
   _render() {
     if (!this.shadowRoot) return;
@@ -675,6 +1088,291 @@ class HouseholdScoreboardCard extends HTMLElement {
           color: #ff5252;
         }
 
+
+        /* TO-DO / CHORES SECTION */
+        #todo-wrapper {
+          margin-top: 18px;
+        }
+        .todo-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin: 0 4px 10px 4px;
+        }
+        .todo-title {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+          font-weight: 700;
+          opacity: 0.55;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .todo-counter-badge {
+          font-size: 10px;
+          font-weight: 700;
+          background: rgba(255, 215, 0, 0.15);
+          color: #ffd700;
+          border: 1px solid rgba(255, 215, 0, 0.3);
+          border-radius: 10px;
+          padding: 2px 8px;
+        }
+        .todo-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .todo-card {
+          background: rgba(255, 255, 255, 0.035);
+          border: 1px solid rgba(255, 255, 255, 0.07);
+          border-radius: 14px;
+          padding: 10px 12px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          position: relative;
+          overflow: hidden;
+        }
+        .todo-card:hover {
+          background: rgba(255, 255, 255, 0.07);
+          border-color: rgba(255, 215, 0, 0.35);
+          transform: translateY(-1px);
+        }
+        .todo-card.overdue {
+          border-color: rgba(255, 87, 34, 0.35);
+          background: linear-gradient(90deg, rgba(255, 87, 34, 0.08) 0%, rgba(255, 255, 255, 0.035) 100%);
+        }
+        .todo-check-btn {
+          width: 32px;
+          height: 32px;
+          min-width: 32px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.06);
+          border: 2px solid rgba(255, 255, 255, 0.2);
+          color: #00e676;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 15px;
+          font-weight: 800;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .todo-card:hover .todo-check-btn {
+          border-color: #00e676;
+          background: rgba(0, 230, 118, 0.15);
+          transform: scale(1.08);
+        }
+        .todo-info {
+          flex: 1;
+          min-width: 0;
+        }
+        .todo-summary {
+          font-size: 13.5px;
+          font-weight: 700;
+          color: var(--primary-text-color, #fff);
+          margin-bottom: 2px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .todo-desc {
+          font-size: 11px;
+          opacity: 0.65;
+          margin-bottom: 4px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .todo-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          align-items: center;
+          margin-top: 4px;
+        }
+        .todo-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 2px 7px;
+          border-radius: 8px;
+          letter-spacing: 0.2px;
+        }
+        .badge-xp {
+          background: rgba(255, 215, 0, 0.14);
+          color: #ffd700;
+          border: 1px solid rgba(255, 215, 0, 0.3);
+        }
+        .badge-bounty {
+          background: rgba(255, 87, 34, 0.18);
+          color: #ff5722;
+          border: 1px solid rgba(255, 87, 34, 0.4);
+          animation: pulse-bounty 1.8s infinite;
+        }
+        @keyframes pulse-bounty {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(255, 87, 34, 0.4); }
+          50% { box-shadow: 0 0 8px 2px rgba(255, 87, 34, 0.3); }
+        }
+        .badge-reset {
+          background: rgba(68, 138, 255, 0.12);
+          color: #448aff;
+          border: 1px solid rgba(68, 138, 255, 0.25);
+        }
+        .badge-due {
+          background: rgba(255, 255, 255, 0.06);
+          color: rgba(255, 255, 255, 0.7);
+        }
+        .badge-overdue {
+          background: rgba(255, 82, 82, 0.18);
+          color: #ff5252;
+          border: 1px solid rgba(255, 82, 82, 0.35);
+        }
+        .todo-empty {
+          text-align: center;
+          padding: 16px;
+          font-size: 12.5px;
+          color: rgba(255, 255, 255, 0.5);
+          background: rgba(255, 255, 255, 0.02);
+          border-radius: 12px;
+          border: 1px dashed rgba(255, 255, 255, 0.1);
+        }
+
+        /* MODAL POPUP */
+        .modal-backdrop {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.75);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          z-index: 100;
+          border-radius: var(--ha-card-border-radius, 24px);
+          animation: modal-fade-in 0.2s ease;
+        }
+        @keyframes modal-fade-in {
+          from { opacity: 0; transform: scale(0.96); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .modal-box {
+          background: var(--ha-card-background, #1c1c1e);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 20px;
+          padding: 18px 16px;
+          width: 100%;
+          max-width: 320px;
+          text-align: center;
+          box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+        }
+        .modal-header {
+          margin-bottom: 14px;
+        }
+        .modal-title {
+          font-size: 15px;
+          font-weight: 800;
+          color: #fff;
+          margin-bottom: 4px;
+        }
+        .modal-task-title {
+          font-size: 13px;
+          font-weight: 600;
+          opacity: 0.8;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .modal-xp-badge {
+          margin-top: 6px;
+          font-size: 13px;
+          color: #ffd700;
+        }
+        .modal-players-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+        .modal-player-card {
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 14px;
+          padding: 10px 6px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .modal-player-card:hover {
+          background: rgba(255, 215, 0, 0.15);
+          border-color: #ffd700;
+          transform: translateY(-2px);
+        }
+        .modal-player-avatar {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          object-fit: cover;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 14px;
+          font-weight: 800;
+          border: 2px solid #ffd700;
+        }
+        .modal-player-name {
+          font-size: 12px;
+          font-weight: 700;
+          color: #fff;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .modal-player-score {
+          font-size: 10px;
+          opacity: 0.6;
+        }
+        .modal-cancel-btn {
+          width: 100%;
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 10px;
+          padding: 8px 0;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .modal-cancel-btn:hover {
+          background: rgba(255, 255, 255, 0.12);
+          color: #fff;
+        }
+
+        /* CONFETTI CANVAS */
+        .confetti-canvas {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          z-index: 99;
+          display: none;
+          border-radius: var(--ha-card-border-radius, 24px);
+        }
+
         /* RESET BUTTON */
         .reset-wrap {
           margin-top: 18px;
@@ -710,6 +1408,14 @@ class HouseholdScoreboardCard extends HTMLElement {
         <div id="podium-section" class="podium-container"></div>
         <div id="ranks-section" class="rankings-list"></div>
 
+        <div id="todo-wrapper">
+          <div class="todo-header">
+            <div class="todo-title">📋 <span id="todo-title-text">Aufgaben & Quests</span></div>
+            <span id="todo-counter-badge" class="todo-counter-badge"></span>
+          </div>
+          <div id="todo-section" class="todo-list"></div>
+        </div>
+
         <div id="actions-wrapper">
           <div class="actions-title">⚡ Aufgaben erledigt (+XP)</div>
           <div id="actions-section" class="actions-grid"></div>
@@ -720,10 +1426,29 @@ class HouseholdScoreboardCard extends HTMLElement {
             <span>🔄</span> <span id="reset-label"></span>
           </button>
         </div>
+        <canvas id="confetti-canvas" class="confetti-canvas"></canvas>
+
+        <div id="player-modal" class="modal-backdrop" style="display: none;">
+          <div class="modal-box">
+            <div class="modal-header">
+              <div class="modal-title">Wer hat es erledigt?</div>
+              <div id="modal-task-title" class="modal-task-title"></div>
+              <div id="modal-xp-badge" class="modal-xp-badge"></div>
+            </div>
+            <div id="modal-players-grid" class="modal-players-grid"></div>
+            <button id="modal-cancel-btn" class="modal-cancel-btn">Abbrechen</button>
+          </div>
+        </div>
       </ha-card>
     `;
 
     this.shadowRoot.getElementById('reset-btn').addEventListener('click', () => this._resetAll());
+    const modalCancel = this.shadowRoot.getElementById('modal-cancel-btn');
+    if (modalCancel) modalCancel.addEventListener('click', () => this._closePlayerModal());
+    const modal = this.shadowRoot.getElementById('player-modal');
+    if (modal) modal.addEventListener('click', (e) => {
+      if (e.target === modal) this._closePlayerModal();
+    });
     this._updateData();
   }
 
@@ -890,6 +1615,9 @@ class HouseholdScoreboardCard extends HTMLElement {
       actionsWrapper.style.display = 'none';
     }
 
+    // 3.5. Update To-Do section
+    this._updateTodoSection();
+
     // 4. Reset Button Section
     if (this._config.show_reset) {
       resetWrapper.style.display = 'block';
@@ -1038,6 +1766,20 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       const dot = this.shadowRoot.getElementById(`p-dot-${idx}`);
       if (dot) dot.style.backgroundColor = value;
     }
+  }
+
+  _getTodoOptions() {
+    if (!this._hass || !this._hass.states) return '';
+    return Object.keys(this._hass.states)
+      .filter(id => id.startsWith('todo.'))
+      .sort()
+      .map(id => {
+        const state = this._hass.states[id];
+        const friendly = state && state.attributes ? state.attributes.friendly_name : null;
+        const label = friendly ? `${friendly} (${id})` : id;
+        return `<option value="${id}">${label}</option>`;
+      })
+      .join('');
   }
 
   _getCounterOptions() {
@@ -1406,6 +2148,9 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
         }
       </style>
 
+      <datalist id="hsc-todo-list">
+        ${this._getTodoOptions()}
+      </datalist>
       <datalist id="hsc-counter-list">
         ${this._getCounterOptions()}
       </datalist>
@@ -1421,6 +2166,9 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
           </button>
           <button type="button" class="tab-btn ${activeTab === 'general' ? 'active' : ''}" data-tab="general">
             ⚙️ Allgemein
+          </button>
+          <button type="button" class="tab-btn ${activeTab === 'todo' ? 'active' : ''}" data-tab="todo">
+            📋 Aufgaben
           </button>
           <button type="button" class="tab-btn ${activeTab === 'display' ? 'active' : ''}" data-tab="display">
             🎛️ Anzeige & Aktionen
@@ -1515,6 +2263,42 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
             <label class="form-label">Punkte-Einheit</label>
             <input type="text" class="hsc-input" id="cfg-unit" value="${this._config.unit || 'XP'}" placeholder="XP" />
             <div class="field-hint">Die angezeigte Einheit nach den Zahlen (z. B. XP, Punkte, Sterne, Tasks).</div>
+          </div>
+        </div>
+
+        <!-- TAB: TODO / CHORES -->
+        <div class="tab-panel" style="display: ${activeTab === 'todo' ? 'flex' : 'none'};">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Aufgabenliste auf der Karte anzeigen</div>
+              <div class="toggle-desc">Aktiviert die interaktive To-Do / Aufgaben-Sektion.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-todo" ${this._config.show_todo !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">To-Do-Listen-Entität (todo.*)</label>
+            <input type="text" list="hsc-todo-list" class="hsc-input" id="cfg-todo-entity" value="${this._config.todo_entity || ''}" placeholder="todo.haushalt" />
+            <div class="field-hint">Wähle eine beliebige Home Assistant To-Do-Liste aus.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Titel der Aufgaben-Sektion</label>
+            <input type="text" class="hsc-input" id="cfg-todo-title" value="${this._config.todo_title || '📋 Aufgaben & Quests'}" placeholder="📋 Aufgaben & Quests" />
+          </div>
+
+          <div style="background: rgba(68, 138, 255, 0.08); border: 1px solid rgba(68, 138, 255, 0.25); border-radius: 12px; padding: 12px 14px; margin-top: 8px;">
+            <div style="font-weight: 700; font-size: 13px; color: #448aff; margin-bottom: 6px;">💡 Smarte Syntax in der Aufgaben-Beschreibung:</div>
+            <div style="font-size: 12px; line-height: 1.6; opacity: 0.85;">
+              Trage in die Beschreibung einer Aufgabe in Home Assistant einfach Tags ein:<br/>
+              • <code>xp: 20</code> ➔ Basis-Belohnung (Standard: 10 XP)<br/>
+              • <code>reset: 3</code> ➔ Automatisch alle 3 Tage wiederholen (oder <code>reset: 1</code> für täglich)<br/>
+              • <code>bonus: +10</code> ➔ Kopfgeld: +10 XP pro Tag, den die Aufgabe überfällig ist!<br/>
+              <i>Beispiel:</i> <code>[xp: 25] [reset: 2] [bonus: +10]</code>
+            </div>
           </div>
         </div>
 
@@ -1710,6 +2494,21 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     if (ranksToggle) {
       ranksToggle.addEventListener('change', (ev) => this._updateConfig({ show_ranks: ev.target.checked }));
     }
+    const todoEntityInput = this.shadowRoot.getElementById('cfg-todo-entity');
+    if (todoEntityInput) {
+      todoEntityInput.addEventListener('change', (ev) => this._updateConfig({ todo_entity: ev.target.value.trim() }));
+    }
+
+    const showTodoToggle = this.shadowRoot.getElementById('cfg-show-todo');
+    if (showTodoToggle) {
+      showTodoToggle.addEventListener('change', (ev) => this._updateConfig({ show_todo: ev.target.checked }));
+    }
+
+    const todoTitleInput = this.shadowRoot.getElementById('cfg-todo-title');
+    if (todoTitleInput) {
+      todoTitleInput.addEventListener('change', (ev) => this._updateConfig({ todo_title: ev.target.value }));
+    }
+
     const actionsToggle = this.shadowRoot.getElementById('cfg-show-actions');
     if (actionsToggle) {
       actionsToggle.addEventListener('change', (ev) => this._updateConfig({ show_actions: ev.target.checked }));

@@ -23,6 +23,10 @@ Motiviere die ganze Familie oder WG bei täglichen Aufgaben: Wer eine Aufgabe er
   * ⚡ **Profi** (30–49 XP)
   * 👑 **Legende** (ab 50 XP)
 * 🎮 **Integrierte Schnell-Aktionsbuttons (+1 XP):** Direkt auf der Karte mit einem Klick Punkte gutschreiben – inklusive haptischem Feedback und latenzfreier Live-Aktualisierung.
+* 📋 **To-Do-Listen & Quests-Integration:** Integriere beliebige Home Assistant To-Do-Listen (`todo.*`). Aufgaben können direkt auf der Karte abgehakt werden.
+* 🔥 **Dynamisches Kopfgeld (Bounty-System):** Bleibt eine Aufgabe liegen, steigt die Belohnung automatisch mit jedem überfälligen Tag an (`bonus: +10`).
+* 🔄 **Flexibler Auto-Reset nach Tagen:** Aufgaben wiederholen sich automatisch nach `N` Tagen (z. B. `reset: 1` für täglich, `reset: 3` für alle 3 Tage, `reset: 7` für wöchentlich).
+* 🎉 **Konfetti-Effekt & Spieler-Schnellauswahl:** Beim Abhaken wählst du einfach den Erlediger aus und die Punkte fliegen mit Konfetti auf dessen Konto!
 * ➖ **Korrektur-Option:** Mit optionalem Minus-Button zur schnellen Korrektur von Fehlklicks.
 * 🔄 **Saison- / Wochen-Reset:** Optionaler Reset-Button mit Sicherheitsabfrage zum Zurücksetzen aller Punkte auf 0.
 * 🖼️ **Automatische Avatare:** Liest Profilbilder direkt aus `person.*`-Entities oder erlaubt eigene Bild-URLs. Falls kein Bild vorhanden ist, werden automatisch stilvolle Initialen-Badges generiert.
@@ -119,10 +123,31 @@ players:
 | `show_actions` | `boolean` | `true` | Schnell-Buttons (+1 XP) je Spieler anzeigen |
 | `action_step` | `number` | `1` | Wieviele Punkte pro Klick vergeben werden |
 | `allow_decrement` | `boolean` | `true` | Zeigt kleinen Minus-Button zur Korrektur |
+| `todo_entity` | `string` | `''` | Optional: To-Do-Liste für Aufgaben (z. B. `todo.haushalt`) |
+| `show_todo` | `boolean` | `true` | Aufgabenliste auf der Karte anzeigen |
+| `todo_title` | `string` | `📋 Aufgaben & Quests` | Überschrift für den Aufgaben-Bereich |
 | `show_reset` | `boolean` | `false` | Button zum Zurücksetzen aller Zähler |
 | `reset_text` | `string` | `Wochen-Scoreboard zurücksetzen` | Text des Reset-Buttons |
 | `reset_confirm` | `string` | `...` | Bestätigungstext vor dem Reset |
 | `levels` | `list` | *Standard-Ränge* | Eigene Ränge und Schwellenwerte (optional) |
+
+---
+
+### 📋 Aufgaben-Tags in der To-Do-Beschreibung
+
+Du kannst in der Beschreibung jeder Home Assistant To-Do-Aufgabe flexible Tags hinterlegen:
+
+| Tag | Bedeutung | Beispiel |
+| :--- | :--- | :--- |
+| `xp: X` | Basis-Belohnung in XP (Standard: 10) | `xp: 20` |
+| `reset: N` | Automatischer Reset nach N Tagen | `reset: 1` (täglich), `reset: 3` (alle 3 Tage), `reset: 7` (wöchentlich) |
+| `bonus: +B` | Zusätzliches Kopfgeld pro überfälligem Tag | `bonus: +10` |
+
+*Beispiel für die Aufgaben-Beschreibung in Home Assistant:*
+```text
+[xp: 25] [reset: 2] [bonus: +10]
+Spülmaschine komplett ausräumen und Geschirr einsortieren.
+```
 
 ### Spieler-Optionen (`players`)
 
