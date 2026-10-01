@@ -7,6 +7,10 @@
 Ein spielerisches **Haushalts-Scoreboard & Gamification-Card** für Home Assistant Lovelace Dashboards. 
 Motiviere die ganze Familie oder WG bei täglichen Aufgaben: Wer eine Aufgabe erledigt (z. B. Müll rausgestellt, Spülmaschine ausgeräumt, To-Dos abgehakt), bekommt XP gutgeschrieben und steigt im Rang auf!
 
+<p align="center">
+  <img src="images/preview.svg" alt="Household Scoreboard Card Preview" width="540">
+</p>
+
 ---
 
 ## ✨ Features

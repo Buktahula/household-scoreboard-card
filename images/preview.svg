@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 720" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e1e28"/>
+      <stop offset="100%" stop-color="#12121a"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffd700"/>
+      <stop offset="100%" stop-color="#ff9100"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e0e0e0"/>
+      <stop offset="100%" stop-color="#9e9e9e"/>
+    </linearGradient>
+    <linearGradient id="bronze" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#cd7f32"/>
+      <stop offset="100%" stop-color="#8d5524"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Card Background -->
+  <rect x="20" y="20" width="560" height="680" rx="24" fill="url(#bg)" stroke="rgba(255,215,0,0.2)" stroke-width="1.5" filter="url(#shadow)"/>
+
+  <!-- Card Header -->
+  <text x="300" y="65" font-family="system-ui, sans-serif" font-size="20" font-weight="800" fill="url(#gold)" text-anchor="middle" letter-spacing="1">🏆 HAUSHALTS-RANGLISTE</text>
+  <text x="300" y="88" font-family="system-ui, sans-serif" font-size="12" font-weight="500" fill="#a0a0b0" text-anchor="middle">Gaming Scoreboard • Wer sammelt die meisten XP?</text>
+
+  <!-- PODIUM -->
+  <!-- Rank 2: Luca (Left) -->
+  <g transform="translate(110, 130)">
+    <circle cx="50" cy="50" r="32" fill="#448aff" stroke="#e0e0e0" stroke-width="2.5" filter="url(#shadow)"/>
+    <text x="50" y="58" font-family="system-ui, sans-serif" font-size="20" font-weight="700" fill="#fff" text-anchor="middle">LU</text>
+    <circle cx="74" cy="74" r="12" fill="url(#silver)" stroke="#12121a" stroke-width="2"/>
+    <text x="74" y="78" font-family="system-ui, sans-serif" font-size="10" font-weight="800" fill="#12121a" text-anchor="middle">2</text>
+    <text x="50" y="105" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff" text-anchor="middle">Luca</text>
+    <text x="50" y="122" font-family="system-ui, sans-serif" font-size="12" font-weight="800" fill="url(#silver)" text-anchor="middle">28 XP</text>
+    <path d="M 10 135 L 90 135 L 85 200 L 15 200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+    <text x="50" y="172" font-family="system-ui, sans-serif" font-size="20" font-weight="900" fill="rgba(255,255,255,0.25)" text-anchor="middle">2</text>
+  </g>
+
+  <!-- Rank 1: Alex (Center) -->
+  <g transform="translate(250, 105)">
+    <text x="50" y="12" font-size="24" text-anchor="middle">👑</text>
+    <circle cx="50" cy="50" r="38" fill="#ff4081" stroke="#ffd700" stroke-width="3" filter="url(#shadow)"/>
+    <text x="50" y="58" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#fff" text-anchor="middle">AL</text>
+    <circle cx="78" cy="78" r="14" fill="url(#gold)" stroke="#12121a" stroke-width="2"/>
+    <text x="78" y="83" font-family="system-ui, sans-serif" font-size="12" font-weight="900" fill="#12121a" text-anchor="middle">1</text>
+    <text x="50" y="112" font-family="system-ui, sans-serif" font-size="15" font-weight="800" fill="#fff" text-anchor="middle">Alex</text>
+    <text x="50" y="130" font-family="system-ui, sans-serif" font-size="13" font-weight="900" fill="url(#gold)" text-anchor="middle">42 XP</text>
+    <path d="M 5 145 L 95 145 L 90 225 L 10 225 Z" fill="rgba(255,215,0,0.1)" stroke="rgba(255,215,0,0.25)" stroke-width="1"/>
+    <text x="50" y="190" font-family="system-ui, sans-serif" font-size="24" font-weight="900" fill="rgba(255,215,0,0.4)" text-anchor="middle">1</text>
+  </g>
+
+  <!-- Rank 3: Sarah (Right) -->
+  <g transform="translate(390, 145)">
+    <circle cx="50" cy="50" r="30" fill="#00e676" stroke="#cd7f32" stroke-width="2.5" filter="url(#shadow)"/>
+    <text x="50" y="57" font-family="system-ui, sans-serif" font-size="18" font-weight="700" fill="#fff" text-anchor="middle">SA</text>
+    <circle cx="72" cy="72" r="11" fill="url(#bronze)" stroke="#12121a" stroke-width="2"/>
+    <text x="72" y="76" font-family="system-ui, sans-serif" font-size="9" font-weight="800" fill="#fff" text-anchor="middle">3</text>
+    <text x="50" y="103" font-family="system-ui, sans-serif" font-size="13.5" font-weight="700" fill="#fff" text-anchor="middle">Sarah</text>
+    <text x="50" y="119" font-family="system-ui, sans-serif" font-size="11.5" font-weight="800" fill="url(#bronze)" text-anchor="middle">19 XP</text>
+    <path d="M 12 132 L 88 132 L 84 185 L 16 185 Z" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+    <text x="50" y="165" font-family="system-ui, sans-serif" font-size="18" font-weight="900" fill="rgba(255,255,255,0.2)" text-anchor="middle">3</text>
+  </g>
+
+  <!-- RANKS LIST -->
+  <!-- Player 1: Alex -->
+  <g transform="translate(45, 360)">
+    <rect x="0" y="0" width="510" height="58" rx="14" fill="rgba(255,255,255,0.04)" stroke="rgba(255,215,0,0.15)" stroke-width="1"/>
+    <circle cx="30" cy="29" r="18" fill="#ff4081"/>
+    <text x="30" y="35" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">AL</text>
+    <text x="60" y="24" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">Alex</text>
+    <rect x="105" y="12" width="60" height="18" rx="9" fill="rgba(255,64,129,0.15)"/>
+    <text x="135" y="25" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#ff4081" text-anchor="middle">👑 Legende</text>
+    <text x="495" y="25" font-family="system-ui, sans-serif" font-size="13" font-weight="800" fill="url(#gold)" text-anchor="end">42 XP</text>
+    
+    <!-- Progress Bar -->
+    <rect x="60" y="38" width="435" height="7" rx="3.5" fill="rgba(255,255,255,0.08)"/>
+    <rect x="60" y="38" width="365" height="7" rx="3.5" fill="url(#gold)"/>
+  </g>
+
+  <!-- Player 2: Luca -->
+  <g transform="translate(45, 428)">
+    <rect x="0" y="0" width="510" height="58" rx="14" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+    <circle cx="30" cy="29" r="18" fill="#448aff"/>
+    <text x="30" y="35" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">LU</text>
+    <text x="60" y="24" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">Luca</text>
+    <rect x="105" y="12" width="50" height="18" rx="9" fill="rgba(0,230,118,0.15)"/>
+    <text x="130" y="25" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#00e676" text-anchor="middle">🐝 Fleißig</text>
+    <text x="495" y="25" font-family="system-ui, sans-serif" font-size="13" font-weight="800" fill="url(#silver)" text-anchor="end">28 XP</text>
+    
+    <!-- Progress Bar -->
+    <rect x="60" y="38" width="435" height="7" rx="3.5" fill="rgba(255,255,255,0.08)"/>
+    <rect x="60" y="38" width="280" height="7" rx="3.5" fill="#448aff"/>
+  </g>
+
+  <!-- Player 3: Sarah -->
+  <g transform="translate(45, 496)">
+    <rect x="0" y="0" width="510" height="58" rx="14" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+    <circle cx="30" cy="29" r="18" fill="#00e676"/>
+    <text x="30" y="35" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">SA</text>
+    <text x="60" y="24" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">Sarah</text>
+    <rect x="105" y="12" width="50" height="18" rx="9" fill="rgba(255,214,0,0.15)"/>
+    <text x="130" y="25" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#ffd600" text-anchor="middle">⭐ Helfer</text>
+    <text x="495" y="25" font-family="system-ui, sans-serif" font-size="13" font-weight="800" fill="url(#bronze)" text-anchor="end">19 XP</text>
+    
+    <!-- Progress Bar -->
+    <rect x="60" y="38" width="435" height="7" rx="3.5" fill="rgba(255,255,255,0.08)"/>
+    <rect x="60" y="38" width="180" height="7" rx="3.5" fill="#00e676"/>
+  </g>
+
+  <!-- ACTION BUTTONS -->
+  <g transform="translate(45, 570)">
+    <!-- Alex Button -->
+    <rect x="0" y="0" width="160" height="46" rx="12" fill="rgba(255,64,129,0.12)" stroke="rgba(255,64,129,0.3)" stroke-width="1"/>
+    <text x="80" y="28" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#ff4081" text-anchor="middle">+1 XP Alex</text>
+
+    <!-- Luca Button -->
+    <rect x="175" y="0" width="160" height="46" rx="12" fill="rgba(68,138,255,0.12)" stroke="rgba(68,138,255,0.3)" stroke-width="1"/>
+    <text x="255" y="28" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#448aff" text-anchor="middle">+1 XP Luca</text>
+
+    <!-- Sarah Button -->
+    <rect x="350" y="0" width="160" height="46" rx="12" fill="rgba(0,230,118,0.12)" stroke="rgba(0,230,118,0.3)" stroke-width="1"/>
+    <text x="430" y="28" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#00e676" text-anchor="middle">+1 XP Sarah</text>
+  </g>
+
+  <!-- RESET BUTTON -->
+  <g transform="translate(180, 634)">
+    <rect x="0" y="0" width="240" height="34" rx="17" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+    <text x="120" y="22" font-family="system-ui, sans-serif" font-size="11.5" font-weight="600" fill="#888" text-anchor="middle">🔄 Wochen-Scoreboard zurücksetzen</text>
+  </g>
+</svg>
