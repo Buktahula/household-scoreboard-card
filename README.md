@@ -156,4 +156,4 @@ action:
 ## 📄 Lizenz
 
 Dieses Projekt ist unter der [MIT License](LICENSE) lizenziert.
-Erstellt von Alexander Riechel.
+Erstellt von buktahula.
