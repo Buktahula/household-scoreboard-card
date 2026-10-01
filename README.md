@@ -56,11 +56,22 @@ Motiviere die ganze Familie oder WG bei täglichen Aufgaben: Wer eine Aufgabe er
 
 ---
 
-## 🚀 Schnellanleitung (YAML-Beispiel)
+## 🚀 Schnellanleitung
 
 Erstelle für jeden Spieler einen Zähler-Helfer (*Counter*) unter **Einstellungen ➔ Geräte & Dienste ➔ Helfer ➔ Zähler** (z. B. `counter.punkte_alex`).
 
-Füge dann eine neue Karte zu deinem Dashboard hinzu:
+### Option A: 100% über die Benutzeroberfläche (UI Editor)
+1. Klicke im Dashboard auf **Karte hinzufügen** (`+`).
+2. Wähle **Household Scoreboard Card** aus.
+3. Konfiguriere alles bequem über die grafische Oberfläche:
+   - **👥 Spieler:** Spieler hinzufügen, Zähler- und Person-Entitäten aus Autocomplete-Dropdowns wählen, Farben per Klick anpassen.
+   - **⚙️ Allgemein:** Titel, Untertitel und Einheit (z. B. XP oder Sterne) einstellen.
+   - **🎛️ Anzeige & Aktionen:** Podium, Rangliste, Aktionsbuttons und Schrittweite aktivieren oder anpassen.
+   - **🔄 Reset:** Wöchentlichen Reset-Button mit Bestätigungsabfrage aktivieren.
+4. Klicke auf **Speichern** – fertig! Kein YAML erforderlich.
+
+### Option B: Über YAML-Code
+Falls du den Code-Editor bevorzugst, kannst du die Karte auch wie gewohnt über YAML konfigurieren:
 
 ```yaml
 type: custom:household-scoreboard-card

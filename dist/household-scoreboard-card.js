@@ -87,10 +87,6 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.players || !Array.isArray(config.players) || config.players.length === 0) {
-      throw new Error('Please configure at least one player in "players"');
-    }
-
     this._config = {
       title: '🏆 Haushalts-Rangliste',
       subtitle: 'Gaming Scoreboard • Wer sammelt die meisten XP?',
@@ -104,6 +100,7 @@ class HouseholdScoreboardCard extends HTMLElement {
       action_step: 1,
       allow_decrement: true,
       levels: DEFAULT_LEVELS,
+      players: [],
       ...config
     };
 
@@ -168,6 +165,7 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 
   _getPlayerAvatar(player) {
+    if (player.avatar) return player.avatar;
     if (player.image) return player.image;
     if (player.person && this._hass && this._hass.states[player.person]) {
       const p = this._hass.states[player.person];
@@ -195,6 +193,9 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 
   _getSortedPlayers() {
+    if (!this._config.players || !Array.isArray(this._config.players)) {
+      return [];
+    }
     const players = this._config.players.map((p, idx) => {
       const pts = this._getPlayerPoints(p);
       const avatar = this._getPlayerAvatar(p);
@@ -269,6 +270,7 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 
   _resetAll() {
+    if (!this._config.players || this._config.players.length === 0) return;
     const confirmMsg = this._config.reset_confirm || 'Möchtest du alle Punkte wirklich zurücksetzen?';
     if (!confirm(confirmMsg)) return;
 
@@ -751,6 +753,23 @@ class HouseholdScoreboardCard extends HTMLElement {
     const players = this._getSortedPlayers();
     const unit = this._config.unit || 'XP';
 
+    if (players.length === 0) {
+      if (podiumEl) podiumEl.style.display = 'none';
+      if (ranksEl) {
+        ranksEl.style.display = 'block';
+        ranksEl.innerHTML = `
+          <div style="text-align: center; padding: 28px 14px; opacity: 0.7; font-size: 14px; background: rgba(255,255,255,0.02); border-radius: 14px; border: 1px dashed rgba(255,255,255,0.15);">
+            <div style="font-size: 26px; margin-bottom: 8px;">👥</div>
+            <div style="font-weight: 700; margin-bottom: 4px;">Keine Spieler konfiguriert</div>
+            <div>Öffne den Card-Editor und füge Spieler mit ihren Zähler-Entitäten hinzu.</div>
+          </div>
+        `;
+      }
+      if (actionsWrapper) actionsWrapper.style.display = 'none';
+      if (resetWrapper) resetWrapper.style.display = 'none';
+      return;
+    }
+
     // 1. Podium Section
     if (this._config.show_podium !== false && players.length > 0) {
       podiumEl.style.display = 'flex';
@@ -881,149 +900,845 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 }
 
-// Visual Card Editor for Lovelace UI
+// Visual Card Editor for Lovelace UI (100% Configurable via Dashboard UI)
 class HouseholdScoreboardCardEditor extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
     this._config = {};
     this._hass = null;
+    this._activeTab = 'players';
+    this._isInternalChange = false;
   }
 
   setConfig(config) {
-    this._config = config;
+    this._config = {
+      title: '🏆 Haushalts-Rangliste',
+      subtitle: 'Gaming Scoreboard • Wer sammelt die meisten XP?',
+      show_podium: true,
+      show_ranks: true,
+      show_actions: true,
+      show_reset: false,
+      reset_text: 'Wochen-Scoreboard zurücksetzen',
+      reset_confirm: 'Möchtest du die Punkte wirklich für alle Spieler zurücksetzen?',
+      unit: 'XP',
+      action_step: 1,
+      allow_decrement: true,
+      players: [],
+      ...config
+    };
+
+    if (this._isInternalChange) {
+      this._isInternalChange = false;
+      return;
+    }
+
     this._render();
   }
 
   set hass(hass) {
+    const prevHass = this._hass;
     this._hass = hass;
+    if (!prevHass && hass) {
+      this._updateDatalists();
+    }
   }
 
-  _valueChanged(ev) {
-    if (!this._config || !this._hass) return;
-    const target = ev.target;
-    const configValue = target.configValue;
-    let value = target.value;
-
-    if (target.type === 'checkbox') {
-      value = target.checked;
-    }
-
-    const newConfig = {
-      ...this._config,
-      [configValue]: value,
-    };
-
-    const event = new CustomEvent('config-changed', {
-      detail: { config: newConfig },
+  _fireConfigChanged() {
+    this._isInternalChange = true;
+    this.dispatchEvent(new CustomEvent('config-changed', {
+      detail: { config: this._config },
       bubbles: true,
       composed: true,
+    }));
+  }
+
+  _updateConfig(diff) {
+    this._config = {
+      ...this._config,
+      ...diff,
+    };
+    this._fireConfigChanged();
+  }
+
+  _setActiveTab(tab) {
+    this._activeTab = tab;
+    this._render();
+  }
+
+  _addPlayer() {
+    const players = [...(this._config.players || [])];
+    const nextIdx = players.length + 1;
+    const nextColor = DEFAULT_COLORS[players.length % DEFAULT_COLORS.length];
+
+    let suggestedCounter = '';
+    let suggestedPerson = '';
+    if (this._hass && this._hass.states) {
+      const usedCounters = new Set(players.map(p => p.entity));
+      const availableCounters = Object.keys(this._hass.states).filter(
+        id => id.startsWith('counter.') && !usedCounters.has(id)
+      );
+      if (availableCounters.length > 0) suggestedCounter = availableCounters[0];
+
+      const usedPersons = new Set(players.map(p => p.person));
+      const availablePersons = Object.keys(this._hass.states).filter(
+        id => id.startsWith('person.') && !usedPersons.has(id)
+      );
+      if (availablePersons.length > 0) suggestedPerson = availablePersons[0];
+    }
+
+    players.push({
+      name: `Spieler ${nextIdx}`,
+      entity: suggestedCounter,
+      person: suggestedPerson,
+      avatar: '',
+      color: nextColor
     });
-    this.dispatchEvent(event);
+
+    this._updateConfig({ players });
+    this._render();
+  }
+
+  _removePlayer(idx) {
+    const players = [...(this._config.players || [])];
+    if (players.length <= 1) {
+      if (!confirm('Möchtest du diesen letzten Spieler wirklich entfernen?')) return;
+    }
+    players.splice(idx, 1);
+    this._updateConfig({ players });
+    this._render();
+  }
+
+  _movePlayer(idx, direction) {
+    const players = [...(this._config.players || [])];
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= players.length) return;
+    const temp = players[idx];
+    players[idx] = players[targetIdx];
+    players[targetIdx] = temp;
+    this._updateConfig({ players });
+    this._render();
+  }
+
+  _updatePlayerProp(idx, prop, value) {
+    if (!this._config.players || !this._config.players[idx]) return;
+    const players = this._config.players.map((p, i) => {
+      if (i === idx) {
+        return { ...p, [prop]: value };
+      }
+      return p;
+    });
+    this._config = { ...this._config, players };
+    this._fireConfigChanged();
+
+    if (prop === 'name') {
+      const titleSpan = this.shadowRoot.getElementById(`p-title-${idx}`);
+      if (titleSpan) titleSpan.textContent = value || `Spieler ${idx + 1}`;
+    } else if (prop === 'color') {
+      const dot = this.shadowRoot.getElementById(`p-dot-${idx}`);
+      if (dot) dot.style.backgroundColor = value;
+    }
+  }
+
+  _getCounterOptions() {
+    if (!this._hass || !this._hass.states) return '';
+    return Object.keys(this._hass.states)
+      .filter(id => id.startsWith('counter.') || id.startsWith('input_number.'))
+      .sort()
+      .map(id => {
+        const state = this._hass.states[id];
+        const friendly = state && state.attributes ? state.attributes.friendly_name : null;
+        return `<option value="${id}">${friendly ? `${friendly} (${id})` : id}</option>`;
+      })
+      .join('');
+  }
+
+  _getPersonOptions() {
+    if (!this._hass || !this._hass.states) return '';
+    return Object.keys(this._hass.states)
+      .filter(id => id.startsWith('person.'))
+      .sort()
+      .map(id => {
+        const state = this._hass.states[id];
+        const friendly = state && state.attributes ? state.attributes.friendly_name : null;
+        return `<option value="${id}">${friendly ? `${friendly} (${id})` : id}</option>`;
+      })
+      .join('');
+  }
+
+  _updateDatalists() {
+    if (!this.shadowRoot) return;
+    const counterDatalist = this.shadowRoot.getElementById('hsc-counter-list');
+    if (counterDatalist) {
+      counterDatalist.innerHTML = this._getCounterOptions();
+    }
+    const personDatalist = this.shadowRoot.getElementById('hsc-person-list');
+    if (personDatalist) {
+      personDatalist.innerHTML = this._getPersonOptions();
+    }
   }
 
   _render() {
     if (!this.shadowRoot) return;
 
+    const players = this._config.players || [];
+    const activeTab = this._activeTab;
+
     this.shadowRoot.innerHTML = `
       <style>
-        .editor {
+        :host {
+          display: block;
+          font-family: var(--paper-font-body1_-_font-family, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+          color: var(--primary-text-color, #212121);
+          box-sizing: border-box;
+        }
+
+        .editor-container {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          padding: 6px 0 16px 0;
+        }
+
+        /* TABS */
+        .tab-bar {
+          display: flex;
+          gap: 6px;
+          border-bottom: 2px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+          padding-bottom: 4px;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+        .tab-bar::-webkit-scrollbar {
+          display: none;
+        }
+        .tab-btn {
+          background: none;
+          border: none;
+          padding: 8px 12px;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--secondary-text-color, #757575);
+          cursor: pointer;
+          border-radius: 8px 8px 0 0;
+          border-bottom: 3px solid transparent;
+          margin-bottom: -6px;
+          transition: all 0.2s ease;
+          white-space: nowrap;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .tab-btn:hover {
+          color: var(--primary-text-color, #212121);
+          background: rgba(127, 127, 127, 0.08);
+        }
+        .tab-btn.active {
+          color: var(--primary-color, #ffd700);
+          border-bottom-color: var(--primary-color, #ffd700);
+          background: rgba(255, 215, 0, 0.08);
+        }
+        .tab-badge {
+          background: var(--divider-color, rgba(127, 127, 127, 0.25));
+          color: var(--primary-text-color, #212121);
+          font-size: 11px;
+          padding: 1px 6px;
+          border-radius: 10px;
+          font-weight: bold;
+        }
+
+        /* TAB PANELS */
+        .tab-panel {
           display: flex;
           flex-direction: column;
           gap: 14px;
-          padding: 8px 0;
-          font-family: var(--paper-font-body1_-_font-family, sans-serif);
         }
-        .form-row {
+
+        /* FORM ELEMENTS */
+        .form-group {
           display: flex;
           flex-direction: column;
           gap: 4px;
         }
-        .form-row label {
-          font-size: 13px;
+        .form-label {
+          font-size: 12.5px;
           font-weight: 600;
-          color: var(--secondary-text-color, #888);
+          color: var(--secondary-text-color, #757575);
         }
-        .form-row input[type="text"] {
+        .hsc-input {
           padding: 9px 12px;
           border-radius: 8px;
-          border: 1px solid var(--divider-color, #444);
-          background: var(--card-background-color, #222);
-          color: var(--primary-text-color, #fff);
-          font-size: 14px;
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
+          background: var(--card-background-color, rgba(127, 127, 127, 0.05));
+          color: var(--primary-text-color, #212121);
+          font-size: 13.5px;
+          box-sizing: border-box;
+          width: 100%;
+          outline: none;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
-        .switch-row {
+        .hsc-input:focus {
+          border-color: var(--primary-color, #ffd700);
+          box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.2);
+        }
+        .field-hint {
+          font-size: 11.5px;
+          color: var(--secondary-text-color, #888);
+          margin-top: 2px;
+          line-height: 1.3;
+        }
+
+        /* TOGGLE ROWS */
+        .toggle-row {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 4px 0;
+          padding: 10px 14px;
+          background: var(--card-background-color, rgba(127, 127, 127, 0.05));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.15));
+          border-radius: 12px;
+          gap: 12px;
         }
-        .switch-row label {
-          font-size: 14px;
-          font-weight: 500;
+        .toggle-info {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
         }
-        .switch-row input[type="checkbox"] {
-          width: 18px;
-          height: 18px;
-          accent-color: var(--primary-color, #ffd700);
+        .toggle-title {
+          font-size: 13.5px;
+          font-weight: 600;
+          color: var(--primary-text-color, #212121);
+        }
+        .toggle-desc {
+          font-size: 11.5px;
+          color: var(--secondary-text-color, #757575);
+        }
+
+        /* TOGGLE SWITCH */
+        .switch {
+          position: relative;
+          display: inline-block;
+          width: 44px;
+          height: 24px;
+          flex-shrink: 0;
+        }
+        .switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .slider {
+          position: absolute;
           cursor: pointer;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background-color: var(--divider-color, #888);
+          transition: .25s ease;
+          border-radius: 24px;
         }
-        .hint {
+        .slider:before {
+          position: absolute;
+          content: "";
+          height: 18px;
+          width: 18px;
+          left: 3px;
+          bottom: 3px;
+          background-color: white;
+          transition: .25s ease;
+          border-radius: 50%;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        input:checked + .slider {
+          background-color: var(--primary-color, #ffd700);
+        }
+        input:checked + .slider:before {
+          transform: translateX(20px);
+        }
+
+        /* PLAYER CARDS */
+        .player-card {
+          background: var(--card-background-color, rgba(127, 127, 127, 0.06));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.18));
+          border-radius: 14px;
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+        .player-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 1px solid var(--divider-color, rgba(127, 127, 127, 0.12));
+          padding-bottom: 8px;
+        }
+        .player-title-box {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .player-color-dot {
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          display: inline-block;
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
+          flex-shrink: 0;
+        }
+        .player-header-title {
+          font-weight: 700;
+          font-size: 14px;
+          color: var(--primary-text-color, #212121);
+        }
+        .player-btn-group {
+          display: flex;
+          gap: 4px;
+        }
+        .btn-icon {
+          background: rgba(127, 127, 127, 0.12);
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+          border-radius: 6px;
+          color: var(--primary-text-color, #212121);
+          cursor: pointer;
+          padding: 4px 8px;
           font-size: 12px;
-          opacity: 0.6;
+          transition: all 0.15s ease;
+        }
+        .btn-icon:disabled {
+          opacity: 0.35;
+          cursor: not-allowed;
+        }
+        .btn-icon:not(:disabled):hover {
+          background: rgba(127, 127, 127, 0.22);
+        }
+        .btn-icon.delete:not(:disabled):hover {
+          background: #ff5252;
+          color: white;
+          border-color: #ff5252;
+        }
+
+        /* COLOR PICKER & SWATCHES */
+        .color-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
           margin-top: 4px;
+        }
+        .hsc-color-picker {
+          width: 36px;
+          height: 36px;
+          padding: 0;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          background: none;
+        }
+        .swatches {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        .swatch {
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          cursor: pointer;
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+        }
+        .swatch:hover {
+          transform: scale(1.18);
+        }
+        .swatch.active {
+          outline: 2px solid var(--primary-color, #ffd700);
+          outline-offset: 2px;
+        }
+
+        /* ACTION BUTTONS */
+        .btn-add {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 12px 18px;
+          background: var(--primary-color, #ffd700);
+          color: #121212;
+          border: none;
+          border-radius: 12px;
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: filter 0.2s ease, transform 0.15s ease;
+          box-shadow: 0 4px 12px rgba(255, 215, 0, 0.2);
+        }
+        .btn-add:hover {
+          filter: brightness(1.08);
+          transform: translateY(-1px);
+        }
+
+        /* LEVEL CARDS */
+        .level-card {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: var(--card-background-color, rgba(127, 127, 127, 0.05));
+          border-left: 4px solid var(--primary-color, #ffd700);
+        }
+        .level-badge {
+          font-size: 26px;
+          line-height: 1;
+        }
+        .level-info {
+          flex: 1;
+        }
+        .level-name {
+          font-weight: 700;
+          font-size: 14px;
+          color: var(--primary-text-color, #212121);
+        }
+        .level-req {
+          font-size: 12px;
+          color: var(--secondary-text-color, #757575);
+          margin-top: 2px;
         }
       </style>
 
-      <div class="editor">
-        <div class="form-row">
-          <label>Titel</label>
-          <input type="text" .configValue="${'title'}" .value="${this._config.title || ''}" id="title" />
+      <datalist id="hsc-counter-list">
+        ${this._getCounterOptions()}
+      </datalist>
+      <datalist id="hsc-person-list">
+        ${this._getPersonOptions()}
+      </datalist>
+
+      <div class="editor-container">
+        <!-- TAB BAR -->
+        <div class="tab-bar">
+          <button type="button" class="tab-btn ${activeTab === 'players' ? 'active' : ''}" data-tab="players">
+            👥 Spieler <span class="tab-badge">${players.length}</span>
+          </button>
+          <button type="button" class="tab-btn ${activeTab === 'general' ? 'active' : ''}" data-tab="general">
+            ⚙️ Allgemein
+          </button>
+          <button type="button" class="tab-btn ${activeTab === 'display' ? 'active' : ''}" data-tab="display">
+            🎛️ Anzeige & Aktionen
+          </button>
+          <button type="button" class="tab-btn ${activeTab === 'reset' ? 'active' : ''}" data-tab="reset">
+            🔄 Reset
+          </button>
+          <button type="button" class="tab-btn ${activeTab === 'levels' ? 'active' : ''}" data-tab="levels">
+            🏅 Level
+          </button>
         </div>
 
-        <div class="form-row">
-          <label>Untertitel</label>
-          <input type="text" .configValue="${'subtitle'}" .value="${this._config.subtitle || ''}" id="subtitle" />
+        <!-- TAB 1: PLAYERS -->
+        <div class="tab-panel" style="display: ${activeTab === 'players' ? 'flex' : 'none'};">
+          ${players.length === 0 ? `
+            <div style="text-align: center; padding: 24px 12px; opacity: 0.7; font-size: 14px; background: rgba(127,127,127,0.06); border-radius: 12px; border: 1px dashed var(--divider-color, rgba(127,127,127,0.2));">
+              Noch keine Spieler angelegt. Klicke unten auf "Spieler hinzufügen", um zu starten!
+            </div>
+          ` : ''}
+
+          ${players.map((p, idx) => `
+            <div class="player-card" data-idx="${idx}">
+              <div class="player-header">
+                <div class="player-title-box">
+                  <span id="p-dot-${idx}" class="player-color-dot" style="background-color: ${p.color || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]};"></span>
+                  <span id="p-title-${idx}" class="player-header-title">${p.name || `Spieler ${idx + 1}`}</span>
+                </div>
+                <div class="player-btn-group">
+                  <button type="button" class="btn-icon btn-move-up" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''} title="Nach oben verschieben">▲</button>
+                  <button type="button" class="btn-icon btn-move-down" data-idx="${idx}" ${idx === players.length - 1 ? 'disabled' : ''} title="Nach unten verschieben">▼</button>
+                  <button type="button" class="btn-icon delete btn-delete-player" data-idx="${idx}" title="Spieler löschen">🗑️</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Name</label>
+                <input type="text" class="hsc-input p-input" data-idx="${idx}" data-prop="name" value="${p.name || ''}" placeholder="z. B. Alex" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Zähler-Entität (counter.* oder input_number.*)</label>
+                <input type="text" list="hsc-counter-list" class="hsc-input p-input" data-idx="${idx}" data-prop="entity" value="${p.entity || ''}" placeholder="counter.punkte_alex" />
+                <div class="field-hint">Die Home Assistant Entität, in der die Punkte gezählt werden.</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Person-Profil (für Avatarbild)</label>
+                <input type="text" list="hsc-person-list" class="hsc-input p-input" data-idx="${idx}" data-prop="person" value="${p.person || ''}" placeholder="person.alex (optional)" />
+                <div class="field-hint">Liest das Profilbild automatisch aus deiner Home Assistant Person.</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Eigenes Bild / Avatar-URL (optional)</label>
+                <input type="text" class="hsc-input p-input" data-idx="${idx}" data-prop="avatar" value="${p.avatar || p.image || ''}" placeholder="/local/alex.png oder URL (optional)" />
+                <div class="field-hint">Überschreibt das Profilbild der Person mit einem individuellen Bild.</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Spieler-Farbe</label>
+                <div class="color-row">
+                  <input type="color" class="hsc-color-picker" data-idx="${idx}" value="${p.color || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]}" />
+                  <div class="swatches">
+                    ${DEFAULT_COLORS.map(c => `
+                      <span class="swatch ${p.color === c ? 'active' : ''}" style="background-color: ${c};" data-color="${c}" data-idx="${idx}"></span>
+                    `).join('')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+
+          <button type="button" class="btn-add" id="btn-add-player">
+            ➕ Spieler hinzufügen
+          </button>
         </div>
 
-        <div class="form-row">
-          <label>Einheit (z. B. XP, Punkte, Sterne)</label>
-          <input type="text" .configValue="${'unit'}" .value="${this._config.unit || 'XP'}" id="unit" />
+        <!-- TAB 2: GENERAL -->
+        <div class="tab-panel" style="display: ${activeTab === 'general' ? 'flex' : 'none'};">
+          <div class="form-group">
+            <label class="form-label">Karten-Titel</label>
+            <input type="text" class="hsc-input" id="cfg-title" value="${this._config.title || ''}" placeholder="🏆 Haushalts-Rangliste" />
+            <div class="field-hint">Die Hauptüberschrift ganz oben auf der Karte.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Untertitel / Motto</label>
+            <input type="text" class="hsc-input" id="cfg-subtitle" value="${this._config.subtitle || ''}" placeholder="Gaming Scoreboard • Wer sammelt die meisten XP?" />
+            <div class="field-hint">Kleinerer Text unter dem Titel (kann auch leer gelassen werden).</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Punkte-Einheit</label>
+            <input type="text" class="hsc-input" id="cfg-unit" value="${this._config.unit || 'XP'}" placeholder="XP" />
+            <div class="field-hint">Die angezeigte Einheit nach den Zahlen (z. B. XP, Punkte, Sterne, Tasks).</div>
+          </div>
         </div>
 
-        <div class="switch-row">
-          <label>Siegertreppchen / Podium anzeigen</label>
-          <input type="checkbox" .configValue="${'show_podium'}" ?checked="${this._config.show_podium !== false}" id="show_podium" />
+        <!-- TAB 3: DISPLAY & ACTIONS -->
+        <div class="tab-panel" style="display: ${activeTab === 'display' ? 'flex' : 'none'};">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Siegertreppchen (Podium) anzeigen</div>
+              <div class="toggle-desc">Animierte Treppchen-Darstellung der Top 3 mit Kronen und Medaillen.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-podium" ${this._config.show_podium !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Rangliste mit Fortschrittsbalken</div>
+              <div class="toggle-desc">Zeigt alle Spieler mit Punkten, Level-Badges und Fortschritt zum nächsten Rang.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-ranks" ${this._config.show_ranks !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Schnell-Aktions-Buttons (+XP)</div>
+              <div class="toggle-desc">Ermöglicht das direkte Vergeben von Punkten per Klick auf der Karte.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-actions" ${this._config.show_actions !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Schrittweite pro Klick (Punkte)</label>
+            <input type="number" min="1" max="100" class="hsc-input" id="cfg-action-step" value="${this._config.action_step || 1}" />
+            <div class="field-hint">Anzahl der Punkte, die pro Klick auf den Button vergeben werden (Standard: 1).</div>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Minus-Button (-XP) erlauben</div>
+              <div class="toggle-desc">Bietet einen zusätzlichen Button, um versehentlich vergebene Punkte abzuziehen.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-allow-decrement" ${this._config.allow_decrement !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
 
-        <div class="switch-row">
-          <label>Rangliste mit Fortschrittsbalken anzeigen</label>
-          <input type="checkbox" .configValue="${'show_ranks'}" ?checked="${this._config.show_ranks !== false}" id="show_ranks" />
+        <!-- TAB 4: RESET -->
+        <div class="tab-panel" style="display: ${activeTab === 'reset' ? 'flex' : 'none'};">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Reset-Button anzeigen</div>
+              <div class="toggle-desc">Fügt einen Button am unteren Kartenrand hinzu, um die Punktestände aller Spieler zurückzusetzen.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-reset" ${!!this._config.show_reset ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Button-Beschriftung</label>
+            <input type="text" class="hsc-input" id="cfg-reset-text" value="${this._config.reset_text || 'Wochen-Scoreboard zurücksetzen'}" />
+            <div class="field-hint">Text auf dem Reset-Button.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Sicherheits-Bestätigungstext</label>
+            <input type="text" class="hsc-input" id="cfg-reset-confirm" value="${this._config.reset_confirm || 'Möchtest du die Punkte wirklich für alle Spieler zurücksetzen?'}" />
+            <div class="field-hint">Meldung, die der Benutzer bestätigen muss, bevor alle Zähler auf 0 gesetzt werden.</div>
+          </div>
         </div>
 
-        <div class="switch-row">
-          <label>Schnell-Aktions-Buttons (+1 XP) anzeigen</label>
-          <input type="checkbox" .configValue="${'show_actions'}" ?checked="${this._config.show_actions !== false}" id="show_actions" />
-        </div>
+        <!-- TAB 5: LEVELS -->
+        <div class="tab-panel" style="display: ${activeTab === 'levels' ? 'flex' : 'none'};">
+          <div style="font-size: 13px; color: var(--secondary-text-color, #757575); margin-bottom: 4px;">
+            Das Rang- und Levelsystem belohnt Fleiß im Haushalt automatisch mit neuen Abzeichen und Titeln:
+          </div>
 
-        <div class="switch-row">
-          <label>Scoreboard-Reset Button anzeigen</label>
-          <input type="checkbox" .configValue="${'show_reset'}" ?checked="${!!this._config.show_reset}" id="show_reset" />
-        </div>
+          ${DEFAULT_LEVELS.map(lvl => `
+            <div class="level-card" style="border-left-color: ${lvl.color};">
+              <div class="level-badge">${lvl.badge}</div>
+              <div class="level-info">
+                <div class="level-name" style="color: ${lvl.color};">${lvl.title}</div>
+                <div class="level-req">Erreicht ab ${lvl.min} ${this._config.unit || 'XP'}</div>
+              </div>
+            </div>
+          `).join('')}
 
-        <div class="hint">
-          💡 Spieler-Details (Namen, Counter- und Person-Entities) können flexibel über den YAML-Code-Editor konfiguriert werden.
+          <div class="field-hint" style="margin-top: 6px;">
+            💡 Die Level-Grenzwerte passen sich dynamisch an gesammelte Punkte an und motivieren Spieler mit animierten Fortschrittsbalken.
+          </div>
         </div>
       </div>
     `;
 
-    const inputs = this.shadowRoot.querySelectorAll('input');
-    inputs.forEach(input => {
-      input.addEventListener('change', (ev) => this._valueChanged(ev));
-      if (input.type === 'text') {
-        input.addEventListener('input', (ev) => this._valueChanged(ev));
-      }
+    // Hook tab buttons
+    this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._setActiveTab(btn.dataset.tab);
+      });
     });
+
+    // Hook player management
+    const addBtn = this.shadowRoot.getElementById('btn-add-player');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => this._addPlayer());
+    }
+
+    this.shadowRoot.querySelectorAll('.btn-move-up').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        this._movePlayer(idx, -1);
+      });
+    });
+
+    this.shadowRoot.querySelectorAll('.btn-move-down').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        this._movePlayer(idx, 1);
+      });
+    });
+
+    this.shadowRoot.querySelectorAll('.btn-delete-player').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        this._removePlayer(idx);
+      });
+    });
+
+    // Hook player inputs (no full re-render on input to preserve focus!)
+    this.shadowRoot.querySelectorAll('.p-input').forEach(input => {
+      input.addEventListener('input', (ev) => {
+        const idx = parseInt(ev.target.dataset.idx, 10);
+        const prop = ev.target.dataset.prop;
+        this._updatePlayerProp(idx, prop, ev.target.value);
+      });
+    });
+
+    // Hook player color picker
+    this.shadowRoot.querySelectorAll('.hsc-color-picker').forEach(cp => {
+      cp.addEventListener('input', (ev) => {
+        const idx = parseInt(ev.target.dataset.idx, 10);
+        this._updatePlayerProp(idx, 'color', ev.target.value);
+      });
+    });
+
+    // Hook color swatches
+    this.shadowRoot.querySelectorAll('.swatch').forEach(sw => {
+      sw.addEventListener('click', () => {
+        const idx = parseInt(sw.dataset.idx, 10);
+        const color = sw.dataset.color;
+        this._updatePlayerProp(idx, 'color', color);
+        const picker = this.shadowRoot.querySelector(`.hsc-color-picker[data-idx="${idx}"]`);
+        if (picker) picker.value = color;
+        const container = sw.parentElement;
+        if (container) {
+          container.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+          sw.classList.add('active');
+        }
+      });
+    });
+
+    // Hook general settings
+    const titleInput = this.shadowRoot.getElementById('cfg-title');
+    if (titleInput) {
+      titleInput.addEventListener('input', (ev) => this._updateConfig({ title: ev.target.value }));
+    }
+    const subtitleInput = this.shadowRoot.getElementById('cfg-subtitle');
+    if (subtitleInput) {
+      subtitleInput.addEventListener('input', (ev) => this._updateConfig({ subtitle: ev.target.value }));
+    }
+    const unitInput = this.shadowRoot.getElementById('cfg-unit');
+    if (unitInput) {
+      unitInput.addEventListener('input', (ev) => this._updateConfig({ unit: ev.target.value }));
+    }
+
+    // Hook display switches & inputs
+    const podiumToggle = this.shadowRoot.getElementById('cfg-show-podium');
+    if (podiumToggle) {
+      podiumToggle.addEventListener('change', (ev) => this._updateConfig({ show_podium: ev.target.checked }));
+    }
+    const ranksToggle = this.shadowRoot.getElementById('cfg-show-ranks');
+    if (ranksToggle) {
+      ranksToggle.addEventListener('change', (ev) => this._updateConfig({ show_ranks: ev.target.checked }));
+    }
+    const actionsToggle = this.shadowRoot.getElementById('cfg-show-actions');
+    if (actionsToggle) {
+      actionsToggle.addEventListener('change', (ev) => this._updateConfig({ show_actions: ev.target.checked }));
+    }
+    const stepInput = this.shadowRoot.getElementById('cfg-action-step');
+    if (stepInput) {
+      stepInput.addEventListener('input', (ev) => {
+        const val = parseInt(ev.target.value, 10);
+        this._updateConfig({ action_step: isNaN(val) ? 1 : val });
+      });
+    }
+    const decToggle = this.shadowRoot.getElementById('cfg-allow-decrement');
+    if (decToggle) {
+      decToggle.addEventListener('change', (ev) => this._updateConfig({ allow_decrement: ev.target.checked }));
+    }
+
+    // Hook reset settings
+    const resetToggle = this.shadowRoot.getElementById('cfg-show-reset');
+    if (resetToggle) {
+      resetToggle.addEventListener('change', (ev) => this._updateConfig({ show_reset: ev.target.checked }));
+    }
+    const resetTextInput = this.shadowRoot.getElementById('cfg-reset-text');
+    if (resetTextInput) {
+      resetTextInput.addEventListener('input', (ev) => this._updateConfig({ reset_text: ev.target.value }));
+    }
+    const resetConfirmInput = this.shadowRoot.getElementById('cfg-reset-confirm');
+    if (resetConfirmInput) {
+      resetConfirmInput.addEventListener('input', (ev) => this._updateConfig({ reset_confirm: ev.target.value }));
+    }
   }
 }
 
