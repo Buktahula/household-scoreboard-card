@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.3.2';
+const CARD_VERSION = '1.3.3';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -117,6 +117,8 @@ class HouseholdScoreboardCard extends HTMLElement {
     this._hass = null;
     this._lastStateHash = '';
     this._lastTodoHash = '';
+    this._lastThemeHash = '';
+    this._appliedThemeProps = [];
     this._pendingTargets = {};
     this._todoItems = [];
     this._isResettingTodos = false;
@@ -214,8 +216,52 @@ class HouseholdScoreboardCard extends HTMLElement {
     };
 
     this._render();
+    if (this._hass) {
+      const currentTheme = this._config.theme || this._hass.themes?.theme || 'default';
+      const isDark = (this._config.theme && this._config.theme !== 'default')
+        ? (this._hass.themes?.darkMode || false)
+        : (this._hass.themes?.darkMode || false);
+      this._applyTheme(currentTheme, isDark);
+    } else {
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      this.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+    }
+
     if (this._hass && this._config.todo_entity) {
       this._fetchTodoItems();
+    }
+  }
+
+  _applyTheme(themeName, isDark) {
+    this.setAttribute('data-theme', isDark ? 'dark' : 'light');
+
+    if (!this._appliedThemeProps) {
+      this._appliedThemeProps = [];
+    }
+
+    // Remove previously applied custom theme properties
+    this._appliedThemeProps.forEach(prop => {
+      this.style.removeProperty(prop);
+    });
+    this._appliedThemeProps = [];
+
+    if (this._hass && this._hass.themes && this._hass.themes.themes) {
+      const theme = this._hass.themes.themes[themeName];
+      if (theme) {
+        let styles = {};
+        if (theme.modes) {
+          styles = { ...theme, ...(isDark ? theme.modes.dark : theme.modes.light) };
+          delete styles.modes;
+        } else {
+          styles = { ...theme };
+        }
+
+        for (const [key, value] of Object.entries(styles)) {
+          const prop = key.startsWith('--') ? key : `--${key}`;
+          this.style.setProperty(prop, String(value));
+          this._appliedThemeProps.push(prop);
+        }
+      }
     }
   }
 
@@ -226,6 +272,18 @@ class HouseholdScoreboardCard extends HTMLElement {
       this._subscribeNotificationEvents();
     }
     if (!this._config || !this._config.players) return;
+
+    // Check for theme changes (card-level config.theme or Home Assistant selected theme / dark mode)
+    const currentTheme = this._config.theme || hass.themes?.theme || 'default';
+    const isDark = (this._config.theme && this._config.theme !== 'default')
+      ? (hass.themes?.darkMode || false)
+      : (hass.themes?.darkMode || false);
+    const themeHash = `${currentTheme}:${isDark}`;
+
+    if (themeHash !== this._lastThemeHash) {
+      this._lastThemeHash = themeHash;
+      this._applyTheme(currentTheme, isDark);
+    }
 
     // Check if player states have changed
     const currentHash = this._config.players.map(p => {
@@ -1631,12 +1689,14 @@ class HouseholdScoreboardCard extends HTMLElement {
         ha-card {
           position: relative;
           overflow: hidden;
-          background: var(--ha-card-background, var(--card-background-color, linear-gradient(135deg, rgba(28,28,38,0.96) 0%, rgba(18,18,26,0.98) 100%)));
-          border-radius: var(--ha-card-border-radius, 24px);
-          border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, rgba(255, 215, 0, 0.15));
-          box-shadow: var(--ha-card-box-shadow, 0 10px 30px rgba(0, 0, 0, 0.45));
+          background: var(--ha-card-background, var(--card-background-color, var(--ha-card-background-default, #fff)));
+          border-radius: var(--ha-card-border-radius, 16px);
+          border-width: var(--ha-card-border-width, 1px);
+          border-style: var(--ha-card-border-style, solid);
+          border-color: var(--ha-card-border-color, var(--divider-color, rgba(127, 127, 127, 0.2)));
+          box-shadow: var(--ha-card-box-shadow, none);
           padding: 22px 18px;
-          color: var(--primary-text-color, #ffffff);
+          color: var(--primary-text-color, #212121);
           font-family: var(--paper-font-body1_-_font-family, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
           box-sizing: border-box;
         }
@@ -1658,11 +1718,17 @@ class HouseholdScoreboardCard extends HTMLElement {
           justify-content: center;
           gap: 8px;
         }
+        :host([data-theme="light"]) .title {
+          background: linear-gradient(90deg, #b8860b, #d48806, #e65100);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
         .subtitle {
           font-size: 11.5px;
-          opacity: 0.7;
+          opacity: 0.75;
           margin-top: 4px;
           font-weight: 500;
+          color: var(--secondary-text-color, inherit);
         }
 
         /* PODIUM */
@@ -1706,7 +1772,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           justify-content: center;
           font-weight: 800;
           color: #fff;
-          background: #2a2a38;
+          background: var(--secondary-background-color, #2a2a38);
         }
 
         .rank-1 .avatar-box {
@@ -1716,7 +1782,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         .rank-1 .avatar-img, .rank-1 .avatar-fallback {
           width: 74px;
           height: 74px;
-          border: 2px solid var(--ha-card-background, #1c1c24);
+          border: 2px solid var(--ha-card-background, var(--card-background-color, #fff));
           font-size: 24px;
         }
 
@@ -1727,7 +1793,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         .rank-2 .avatar-img, .rank-2 .avatar-fallback {
           width: 58px;
           height: 58px;
-          border: 2px solid var(--ha-card-background, #1c1c24);
+          border: 2px solid var(--ha-card-background, var(--card-background-color, #fff));
           font-size: 18px;
         }
 
@@ -1738,7 +1804,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         .rank-3 .avatar-img, .rank-3 .avatar-fallback {
           width: 52px;
           height: 52px;
-          border: 2px solid var(--ha-card-background, #1c1c24);
+          border: 2px solid var(--ha-card-background, var(--card-background-color, #fff));
           font-size: 16px;
         }
 
@@ -1748,7 +1814,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           left: 50%;
           transform: translateX(-50%);
           font-size: 22px;
-          filter: drop-shadow(0 2px 5px rgba(0,0,0,0.6));
+          filter: drop-shadow(0 2px 5px rgba(0,0,0,0.4));
           animation: floatCrown 2.5s ease-in-out infinite;
         }
         @keyframes floatCrown {
@@ -1769,8 +1835,8 @@ class HouseholdScoreboardCard extends HTMLElement {
           font-size: 11px;
           font-weight: 900;
           color: #111;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.5);
-          border: 2px solid #fff;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+          border: 2px solid var(--ha-card-background, var(--card-background-color, #fff));
         }
         .medal-1 { background: #ffd700; }
         .medal-2 { background: #e0e0e0; }
@@ -1784,11 +1850,15 @@ class HouseholdScoreboardCard extends HTMLElement {
           overflow: hidden;
           text-overflow: ellipsis;
           max-width: 100%;
+          color: var(--primary-text-color, inherit);
         }
         .rank-1 .podium-name {
           font-size: 15.5px;
-          color: #ffd700;
+          color: #b8860b;
           font-weight: 800;
+        }
+        :host([data-theme="dark"]) .rank-1 .podium-name {
+          color: #ffd700;
         }
 
         .podium-score {
@@ -1797,23 +1867,31 @@ class HouseholdScoreboardCard extends HTMLElement {
           margin-top: 2px;
           padding: 2px 10px;
           border-radius: 12px;
-          background: rgba(255,255,255,0.08);
+          background: var(--secondary-background-color, rgba(127,127,127,0.12));
+          color: var(--primary-text-color, inherit);
           display: inline-block;
         }
         .rank-1 .podium-score {
           background: rgba(255, 215, 0, 0.18);
-          color: #ffd700;
+          color: #b8860b;
           border: 1px solid rgba(255, 215, 0, 0.35);
+        }
+        :host([data-theme="dark"]) .rank-1 .podium-score {
+          color: #ffd700;
         }
         .podium-level {
           font-size: 10.5px;
-          opacity: 0.7;
+          opacity: 0.75;
           margin-top: 3px;
           font-weight: 600;
+          color: var(--secondary-text-color, inherit);
         }
         .rank-1 .podium-level {
+          color: #b8860b;
+          opacity: 0.95;
+        }
+        :host([data-theme="dark"]) .rank-1 .podium-level {
           color: #ffd700;
-          opacity: 0.9;
         }
 
         /* RANKINGS LIST */
@@ -1826,26 +1904,28 @@ class HouseholdScoreboardCard extends HTMLElement {
         .rank-row {
           display: flex;
           align-items: center;
-          background: rgba(255, 255, 255, 0.035);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 16px;
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.15));
+          border-radius: var(--ha-card-border-radius, 16px);
           padding: 9px 12px;
           gap: 12px;
+          color: var(--primary-text-color, inherit);
           transition: background 0.2s ease, transform 0.15s ease;
         }
         .rank-row:hover {
-          background: rgba(255, 255, 255, 0.06);
+          background: var(--divider-color, rgba(127, 127, 127, 0.14));
           transform: translateY(-1px);
         }
         .rank-row.leader {
-          border-color: rgba(255, 215, 0, 0.35);
-          background: rgba(255, 215, 0, 0.06);
+          border-color: rgba(255, 215, 0, 0.45);
+          background: rgba(255, 215, 0, 0.08);
         }
         .rank-pos {
           font-size: 15px;
           font-weight: 900;
           width: 22px;
           text-align: center;
+          color: var(--primary-text-color, inherit);
         }
         .rank-row-avatar {
           width: 38px;
@@ -1858,8 +1938,8 @@ class HouseholdScoreboardCard extends HTMLElement {
           font-weight: 800;
           font-size: 13px;
           color: #fff;
-          background: #2a2a38;
-          border: 1.5px solid rgba(255,255,255,0.15);
+          background: var(--secondary-background-color, #2a2a38);
+          border: 1.5px solid var(--divider-color, rgba(127,127,127,0.25));
         }
         .rank-row-info {
           flex: 1;
@@ -1877,21 +1957,26 @@ class HouseholdScoreboardCard extends HTMLElement {
           display: flex;
           align-items: center;
           gap: 6px;
+          color: var(--primary-text-color, inherit);
         }
         .rank-row-badge {
           font-size: 10px;
-          opacity: 0.65;
+          opacity: 0.75;
           font-weight: 500;
+          color: var(--secondary-text-color, inherit);
         }
         .rank-row-pts {
           font-size: 14px;
           font-weight: 800;
+          color: #b8860b;
+        }
+        :host([data-theme="dark"]) .rank-row-pts {
           color: #ffd700;
         }
         .prog-track {
           width: 100%;
           height: 6px;
-          background: rgba(255, 255, 255, 0.08);
+          background: var(--divider-color, rgba(127, 127, 127, 0.18));
           border-radius: 10px;
           overflow: hidden;
         }
@@ -1907,11 +1992,12 @@ class HouseholdScoreboardCard extends HTMLElement {
           text-transform: uppercase;
           letter-spacing: 0.8px;
           font-weight: 700;
-          opacity: 0.55;
+          opacity: 0.75;
           margin: 22px 0 10px 4px;
           display: flex;
           align-items: center;
           gap: 6px;
+          color: var(--secondary-text-color, inherit);
         }
         .actions-grid {
           display: grid;
@@ -1919,20 +2005,21 @@ class HouseholdScoreboardCard extends HTMLElement {
           gap: 10px;
         }
         .action-card {
-          background: rgba(255, 255, 255, 0.035);
-          border: 1px solid rgba(255, 255, 255, 0.07);
-          border-radius: 18px;
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.15));
+          border-radius: var(--ha-card-border-radius, 18px);
           padding: 12px 10px;
           display: flex;
           flex-direction: column;
           align-items: center;
           text-align: center;
+          color: var(--primary-text-color, inherit);
           transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
           position: relative;
         }
         .action-card:hover {
-          background: rgba(255, 255, 255, 0.06);
-          border-color: rgba(255, 255, 255, 0.18);
+          background: var(--divider-color, rgba(127, 127, 127, 0.12));
+          border-color: rgba(255, 215, 0, 0.4);
         }
         .action-avatar {
           width: 44px;
@@ -1955,12 +2042,16 @@ class HouseholdScoreboardCard extends HTMLElement {
           overflow: hidden;
           text-overflow: ellipsis;
           max-width: 100%;
+          color: var(--primary-text-color, inherit);
         }
         .action-score {
           font-size: 12px;
           font-weight: 800;
-          color: #ffd700;
+          color: #b8860b;
           margin-bottom: 9px;
+        }
+        :host([data-theme="dark"]) .action-score {
+          color: #ffd700;
         }
         .btn-group {
           display: flex;
@@ -1976,13 +2067,16 @@ class HouseholdScoreboardCard extends HTMLElement {
           background: rgba(255, 215, 0, 0.15);
           border: 1px solid rgba(255, 215, 0, 0.35);
           border-radius: 12px;
-          color: #ffd700;
+          color: #b8860b;
           font-size: 12px;
           font-weight: 800;
           padding: 7px 6px;
           cursor: pointer;
           user-select: none;
           transition: all 0.15s ease;
+        }
+        :host([data-theme="dark"]) .action-btn {
+          color: #ffd700;
         }
         .action-btn:hover {
           background: rgba(255, 215, 0, 0.3);
@@ -1992,14 +2086,14 @@ class HouseholdScoreboardCard extends HTMLElement {
           transform: scale(0.96);
         }
         .action-btn-dec {
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          color: rgba(255, 255, 255, 0.6);
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.1));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+          color: var(--secondary-text-color, rgba(127, 127, 127, 0.8));
           padding: 7px 8px;
           flex: 0 0 auto;
         }
         .action-btn-dec:hover {
-          background: rgba(255, 82, 82, 0.2);
+          background: rgba(255, 82, 82, 0.15);
           border-color: rgba(255, 82, 82, 0.4);
           color: #ff5252;
         }
@@ -2020,19 +2114,23 @@ class HouseholdScoreboardCard extends HTMLElement {
           text-transform: uppercase;
           letter-spacing: 0.8px;
           font-weight: 700;
-          opacity: 0.55;
+          opacity: 0.75;
           display: flex;
           align-items: center;
           gap: 6px;
+          color: var(--secondary-text-color, inherit);
         }
         .todo-counter-badge {
           font-size: 10px;
           font-weight: 700;
           background: rgba(255, 215, 0, 0.15);
-          color: #ffd700;
-          border: 1px solid rgba(255, 215, 0, 0.3);
+          color: #b8860b;
+          border: 1px solid rgba(255, 215, 0, 0.35);
           border-radius: 10px;
           padding: 2px 8px;
+        }
+        :host([data-theme="dark"]) .todo-counter-badge {
+          color: #ffd700;
         }
         .todo-list {
           display: flex;
@@ -2040,9 +2138,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           gap: 8px;
         }
         .todo-card {
-          background: rgba(255, 255, 255, 0.035);
-          border: 1px solid rgba(255, 255, 255, 0.07);
-          border-radius: 14px;
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.15));
+          border-radius: var(--ha-card-border-radius, 14px);
           padding: 10px 12px;
           display: flex;
           align-items: center;
@@ -2051,24 +2149,25 @@ class HouseholdScoreboardCard extends HTMLElement {
           transition: all 0.2s ease;
           position: relative;
           overflow: hidden;
+          color: var(--primary-text-color, inherit);
         }
         .todo-card:hover {
-          background: rgba(255, 255, 255, 0.07);
-          border-color: rgba(255, 215, 0, 0.35);
+          background: var(--divider-color, rgba(127, 127, 127, 0.12));
+          border-color: rgba(255, 215, 0, 0.45);
           transform: translateY(-1px);
         }
         .todo-card.overdue {
-          border-color: rgba(255, 87, 34, 0.35);
-          background: linear-gradient(90deg, rgba(255, 87, 34, 0.08) 0%, rgba(255, 255, 255, 0.035) 100%);
+          border-color: rgba(255, 87, 34, 0.45);
+          background: linear-gradient(90deg, rgba(255, 87, 34, 0.1) 0%, var(--secondary-background-color, rgba(127, 127, 127, 0.06)) 100%);
         }
         .todo-check-btn {
           width: 32px;
           height: 32px;
           min-width: 32px;
           border-radius: 50%;
-          background: rgba(255, 255, 255, 0.06);
-          border: 2px solid rgba(255, 255, 255, 0.2);
-          color: #00e676;
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.1));
+          border: 2px solid var(--divider-color, rgba(127, 127, 127, 0.25));
+          color: #00c853;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -2076,6 +2175,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           font-weight: 800;
           cursor: pointer;
           transition: all 0.2s ease;
+        }
+        :host([data-theme="dark"]) .todo-check-btn {
+          color: #00e676;
         }
         .todo-card:hover .todo-check-btn {
           border-color: #00e676;
@@ -2089,7 +2191,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         .todo-summary {
           font-size: 13.5px;
           font-weight: 700;
-          color: var(--primary-text-color, #fff);
+          color: var(--primary-text-color, inherit);
           margin-bottom: 2px;
           white-space: nowrap;
           overflow: hidden;
@@ -2097,7 +2199,8 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         .todo-desc {
           font-size: 11px;
-          opacity: 0.65;
+          color: var(--secondary-text-color, inherit);
+          opacity: 0.75;
           margin-bottom: 4px;
           white-space: nowrap;
           overflow: hidden;
@@ -2121,15 +2224,21 @@ class HouseholdScoreboardCard extends HTMLElement {
           letter-spacing: 0.2px;
         }
         .badge-xp {
-          background: rgba(255, 215, 0, 0.14);
+          background: rgba(255, 215, 0, 0.15);
+          color: #b8860b;
+          border: 1px solid rgba(255, 215, 0, 0.35);
+        }
+        :host([data-theme="dark"]) .badge-xp {
           color: #ffd700;
-          border: 1px solid rgba(255, 215, 0, 0.3);
         }
         .badge-bounty {
           background: rgba(255, 87, 34, 0.18);
-          color: #ff5722;
+          color: #e64a19;
           border: 1px solid rgba(255, 87, 34, 0.4);
           animation: pulse-bounty 1.8s infinite;
+        }
+        :host([data-theme="dark"]) .badge-bounty {
+          color: #ff5722;
         }
         @keyframes pulse-bounty {
           0%, 100% { box-shadow: 0 0 0 0 rgba(255, 87, 34, 0.4); }
@@ -2137,37 +2246,51 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         .badge-reset {
           background: rgba(68, 138, 255, 0.12);
+          color: var(--primary-color, #1976d2);
+          border: 1px solid rgba(68, 138, 255, 0.3);
+        }
+        :host([data-theme="dark"]) .badge-reset {
           color: #448aff;
-          border: 1px solid rgba(68, 138, 255, 0.25);
         }
         .badge-due {
-          background: rgba(255, 255, 255, 0.06);
-          color: rgba(255, 255, 255, 0.7);
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.12));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+          color: var(--secondary-text-color, inherit);
         }
         .badge-overdue {
-          background: rgba(255, 82, 82, 0.18);
-          color: #ff5252;
+          background: rgba(255, 82, 82, 0.15);
+          color: #d32f2f;
           border: 1px solid rgba(255, 82, 82, 0.35);
         }
+        :host([data-theme="dark"]) .badge-overdue {
+          color: #ff5252;
+        }
         .badge-bounty-idle {
-          color: #ff9800;
+          color: #e65100;
           background: rgba(255, 152, 0, 0.12);
-          border: 1px solid rgba(255, 152, 0, 0.25);
+          border: 1px solid rgba(255, 152, 0, 0.3);
+        }
+        :host([data-theme="dark"]) .badge-bounty-idle {
+          color: #ff9800;
         }
         .badge-due-today {
-          color: #ffd700;
+          color: #b8860b;
           background: rgba(255, 215, 0, 0.15);
           border: 1px solid rgba(255, 215, 0, 0.35);
           font-weight: 700;
+        }
+        :host([data-theme="dark"]) .badge-due-today {
+          color: #ffd700;
         }
         .todo-empty {
           text-align: center;
           padding: 16px;
           font-size: 12.5px;
-          color: rgba(255, 255, 255, 0.5);
-          background: rgba(255, 255, 255, 0.02);
-          border-radius: 12px;
-          border: 1px dashed rgba(255, 255, 255, 0.1);
+          color: var(--secondary-text-color, inherit);
+          opacity: 0.75;
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.04));
+          border-radius: var(--ha-card-border-radius, 12px);
+          border: 1px dashed var(--divider-color, rgba(127, 127, 127, 0.2));
         }
 
         /* MODAL POPUP */
@@ -2177,14 +2300,14 @@ class HouseholdScoreboardCard extends HTMLElement {
           left: 0;
           right: 0;
           bottom: 0;
-          background: rgba(0, 0, 0, 0.75);
+          background: rgba(0, 0, 0, 0.65);
           backdrop-filter: blur(4px);
           display: flex;
           align-items: center;
           justify-content: center;
           padding: 16px;
           z-index: 100;
-          border-radius: var(--ha-card-border-radius, 24px);
+          border-radius: var(--ha-card-border-radius, 16px);
           animation: modal-fade-in 0.2s ease;
         }
         @keyframes modal-fade-in {
@@ -2192,14 +2315,15 @@ class HouseholdScoreboardCard extends HTMLElement {
           to { opacity: 1; transform: scale(1); }
         }
         .modal-box {
-          background: var(--ha-card-background, #1c1c1e);
-          border: 1px solid rgba(255, 255, 255, 0.15);
-          border-radius: 20px;
+          background: var(--ha-card-background, var(--card-background-color, var(--primary-background-color, #1c1c1e)));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
+          border-radius: var(--ha-card-border-radius, 20px);
           padding: 18px 16px;
           width: 100%;
           max-width: 320px;
           text-align: center;
-          box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+          box-shadow: var(--ha-card-box-shadow, 0 16px 36px rgba(0, 0, 0, 0.35));
+          color: var(--primary-text-color, inherit);
         }
         .modal-header {
           margin-bottom: 14px;
@@ -2207,13 +2331,14 @@ class HouseholdScoreboardCard extends HTMLElement {
         .modal-title {
           font-size: 15px;
           font-weight: 800;
-          color: #fff;
+          color: var(--primary-text-color, inherit);
           margin-bottom: 4px;
         }
         .modal-task-title {
           font-size: 13px;
           font-weight: 600;
-          opacity: 0.8;
+          color: var(--secondary-text-color, inherit);
+          opacity: 0.85;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -2221,6 +2346,9 @@ class HouseholdScoreboardCard extends HTMLElement {
         .modal-xp-badge {
           margin-top: 6px;
           font-size: 13px;
+          color: #b8860b;
+        }
+        :host([data-theme="dark"]) .modal-xp-badge {
           color: #ffd700;
         }
         .modal-players-grid {
@@ -2230,9 +2358,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           margin-bottom: 14px;
         }
         .modal-player-card {
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 14px;
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.08));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.18));
+          border-radius: var(--ha-card-border-radius, 14px);
           padding: 10px 6px;
           display: flex;
           flex-direction: column;
@@ -2240,6 +2368,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           gap: 6px;
           cursor: pointer;
           transition: all 0.15s ease;
+          color: var(--primary-text-color, inherit);
         }
         .modal-player-card:hover {
           background: rgba(255, 215, 0, 0.15);
@@ -2257,11 +2386,13 @@ class HouseholdScoreboardCard extends HTMLElement {
           font-size: 14px;
           font-weight: 800;
           border: 2px solid #ffd700;
+          background: var(--secondary-background-color, #2a2a38);
+          color: #fff;
         }
         .modal-player-name {
           font-size: 12px;
           font-weight: 700;
-          color: #fff;
+          color: var(--primary-text-color, inherit);
           max-width: 100%;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -2269,22 +2400,23 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         .modal-player-score {
           font-size: 10px;
-          opacity: 0.6;
+          color: var(--secondary-text-color, inherit);
+          opacity: 0.75;
         }
         .modal-cancel-btn {
           width: 100%;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.1));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
           border-radius: 10px;
           padding: 8px 0;
-          color: rgba(255, 255, 255, 0.6);
+          color: var(--secondary-text-color, inherit);
           font-size: 12px;
           font-weight: 600;
           cursor: pointer;
         }
         .modal-cancel-btn:hover {
-          background: rgba(255, 255, 255, 0.12);
-          color: #fff;
+          background: var(--divider-color, rgba(127, 127, 127, 0.2));
+          color: var(--primary-text-color, inherit);
         }
 
         /* CONFETTI CANVAS */
@@ -2297,7 +2429,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           pointer-events: none;
           z-index: 99;
           display: none;
-          border-radius: var(--ha-card-border-radius, 24px);
+          border-radius: var(--ha-card-border-radius, 16px);
         }
 
         /* RESET BUTTON */
@@ -2309,11 +2441,11 @@ class HouseholdScoreboardCard extends HTMLElement {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px dashed rgba(255, 255, 255, 0.15);
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
+          border: 1px dashed var(--divider-color, rgba(127, 127, 127, 0.25));
           border-radius: 14px;
           padding: 7px 14px;
-          color: rgba(255, 255, 255, 0.55);
+          color: var(--secondary-text-color, inherit);
           font-size: 11.5px;
           font-weight: 600;
           cursor: pointer;
@@ -2321,7 +2453,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         .reset-btn:hover {
           background: rgba(255, 82, 82, 0.12);
-          border-color: rgba(255, 82, 82, 0.3);
+          border-color: rgba(255, 82, 82, 0.4);
           color: #ff5252;
         }
 
@@ -2330,8 +2462,8 @@ class HouseholdScoreboardCard extends HTMLElement {
           position: absolute;
           right: 0;
           top: -2px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.1));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
           border-radius: 10px;
           width: 32px;
           height: 32px;
@@ -2340,7 +2472,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           justify-content: center;
           cursor: pointer;
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.8);
+          color: var(--primary-text-color, inherit);
           transition: all 0.2s ease;
         }
         .sound-toggle-btn:hover {
@@ -2354,7 +2486,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           margin-top: 5px;
           font-size: 11px;
           font-weight: 700;
-          color: #ff9800;
+          color: #e65100;
           background: rgba(255, 152, 0, 0.12);
           border: 1px solid rgba(255, 152, 0, 0.25);
           padding: 2px 8px;
@@ -2362,6 +2494,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           display: inline-flex;
           align-items: center;
           gap: 3px;
+        }
+        :host([data-theme="dark"]) .podium-streak {
+          color: #ff9800;
         }
         .podium-streak.active {
           color: #ff5722;
@@ -2376,13 +2511,16 @@ class HouseholdScoreboardCard extends HTMLElement {
           gap: 2px;
           font-size: 11px;
           font-weight: 800;
-          color: #ff9800;
+          color: #e65100;
           background: rgba(255, 152, 0, 0.12);
           border: 1px solid rgba(255, 152, 0, 0.25);
           padding: 1px 6px;
           border-radius: 8px;
           margin-left: 6px;
           vertical-align: middle;
+        }
+        :host([data-theme="dark"]) .streak-badge {
+          color: #ff9800;
         }
         .streak-badge.active {
           color: #ff5722;
@@ -2408,13 +2546,16 @@ class HouseholdScoreboardCard extends HTMLElement {
           gap: 5px;
           background: linear-gradient(135deg, rgba(255, 215, 0, 0.15), rgba(255, 152, 0, 0.12));
           border: 1px solid rgba(255, 215, 0, 0.35);
-          color: #ffd700;
+          color: #b8860b;
           padding: 4px 10px;
           border-radius: 10px;
           font-size: 11.5px;
           font-weight: 700;
           cursor: pointer;
           transition: all 0.2s ease;
+        }
+        :host([data-theme="dark"]) .todo-roulette-btn {
+          color: #ffd700;
         }
         .todo-roulette-btn:hover {
           background: linear-gradient(135deg, #ffd700, #ff9800);
@@ -2423,8 +2564,8 @@ class HouseholdScoreboardCard extends HTMLElement {
           transform: translateY(-1px);
         }
         .todo-roulette-mini-btn {
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.1));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
           border-radius: 8px;
           width: 28px;
           height: 28px;
@@ -2437,6 +2578,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           flex-shrink: 0;
           transition: all 0.2s ease;
           align-self: center;
+          color: var(--primary-text-color, inherit);
         }
         .todo-roulette-mini-btn:hover {
           background: rgba(255, 215, 0, 0.2);
@@ -2447,8 +2589,8 @@ class HouseholdScoreboardCard extends HTMLElement {
           width: 32px;
           height: 32px;
           border-radius: 10px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1.5px solid rgba(255, 215, 0, 0.3);
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.08));
+          border: 1.5px solid var(--divider-color, rgba(127, 127, 127, 0.2));
           display: flex;
           align-items: center;
           justify-content: center;
@@ -2465,11 +2607,11 @@ class HouseholdScoreboardCard extends HTMLElement {
           margin: 16px 0;
         }
         .roulette-slot-window {
-          background: rgba(0, 0, 0, 0.35);
-          border: 2px solid #ffd700;
+          background: var(--secondary-background-color, rgba(0, 0, 0, 0.15));
+          border: 2px solid var(--primary-color, #ffd700);
           border-radius: 16px;
           padding: 16px 12px;
-          box-shadow: inset 0 0 16px rgba(0,0,0,0.6), 0 0 20px rgba(255, 215, 0, 0.2);
+          box-shadow: inset 0 0 16px rgba(0,0,0,0.2), 0 0 20px rgba(255, 215, 0, 0.2);
           overflow: hidden;
           min-height: 100px;
           display: flex;
@@ -2499,21 +2641,26 @@ class HouseholdScoreboardCard extends HTMLElement {
           font-size: 20px;
           font-weight: 800;
           color: white;
-          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+          background: var(--secondary-background-color, #2a2a38);
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
         }
         .roulette-candidate-name {
           font-size: 16px;
           font-weight: 800;
-          color: #fff;
+          color: var(--primary-text-color, inherit);
         }
         .roulette-candidate-pts {
           font-size: 12px;
-          color: #ffd700;
+          color: #b8860b;
           font-weight: 600;
+        }
+        :host([data-theme="dark"]) .roulette-candidate-pts {
+          color: #ffd700;
         }
         .roulette-fair-hint {
           font-size: 10.5px;
-          opacity: 0.65;
+          color: var(--secondary-text-color, inherit);
+          opacity: 0.75;
           margin-top: 8px;
           text-align: center;
         }
@@ -2523,7 +2670,8 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         .roulette-winner-label {
           font-size: 12px;
-          opacity: 0.75;
+          color: var(--secondary-text-color, inherit);
+          opacity: 0.8;
           text-transform: uppercase;
           letter-spacing: 0.8px;
           font-weight: 700;
@@ -2531,13 +2679,17 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         .roulette-winner-name {
           font-size: 20px;
-          color: #ffd700;
+          color: #b8860b;
           font-weight: 800;
           margin-bottom: 4px;
         }
+        :host([data-theme="dark"]) .roulette-winner-name {
+          color: #ffd700;
+        }
         .roulette-winner-sub {
           font-size: 12px;
-          opacity: 0.8;
+          color: var(--secondary-text-color, inherit);
+          opacity: 0.85;
           margin-bottom: 16px;
         }
         .roulette-action-buttons {
@@ -2597,9 +2749,9 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         .roulette-spin-again-btn {
           width: 100%;
-          background: rgba(255, 255, 255, 0.07);
-          color: #fff;
-          border: 1px solid rgba(255, 255, 255, 0.15);
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.1));
+          color: var(--primary-text-color, inherit);
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
           border-radius: 12px;
           padding: 8px 0;
           font-size: 12px;
@@ -2607,7 +2759,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           cursor: pointer;
         }
         .roulette-spin-again-btn:hover {
-          background: rgba(255, 255, 255, 0.12);
+          background: var(--divider-color, rgba(127, 127, 127, 0.2));
         }
       </style>
 
@@ -3106,6 +3258,14 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       .join('');
   }
 
+  _getThemeOptions() {
+    if (!this._hass || !this._hass.themes || !this._hass.themes.themes) return '';
+    return Object.keys(this._hass.themes.themes)
+      .sort()
+      .map(t => `<option value="${t}">${t}</option>`)
+      .join('');
+  }
+
   _updateDatalists() {
     if (!this.shadowRoot) return;
     const counterDatalist = this.shadowRoot.getElementById('hsc-counter-list');
@@ -3119,6 +3279,10 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const notifyDatalist = this.shadowRoot.getElementById('hsc-notify-list');
     if (notifyDatalist) {
       notifyDatalist.innerHTML = this._getNotifyOptions();
+    }
+    const themeDatalist = this.shadowRoot.getElementById('hsc-theme-list');
+    if (themeDatalist) {
+      themeDatalist.innerHTML = this._getThemeOptions();
     }
   }
 
@@ -3462,6 +3626,9 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       <datalist id="hsc-notify-list">
         ${this._getNotifyOptions()}
       </datalist>
+      <datalist id="hsc-theme-list">
+        ${this._getThemeOptions()}
+      </datalist>
 
       <div class="editor-container">
         <!-- TAB BAR -->
@@ -3580,6 +3747,12 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
             <label class="form-label">Punkte-Einheit</label>
             <input type="text" class="hsc-input" id="cfg-unit" value="${this._config.unit || 'XP'}" placeholder="XP" />
             <div class="field-hint">Die angezeigte Einheit nach den Zahlen (z. B. XP, Punkte, Sterne, Tasks).</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Theme (optional)</label>
+            <input type="text" list="hsc-theme-list" class="hsc-input" id="cfg-theme" value="${this._config.theme || ''}" placeholder="Standard (vom Benutzer / Dashboard)" />
+            <div class="field-hint">Wähle ein spezifisches Home Assistant Theme für diese Karte oder lasse das Feld leer für das vom Benutzer ausgewählte Theme.</div>
           </div>
         </div>
 
@@ -3850,6 +4023,13 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const unitInput = this.shadowRoot.getElementById('cfg-unit');
     if (unitInput) {
       unitInput.addEventListener('input', (ev) => this._updateConfig({ unit: ev.target.value }));
+    }
+    const themeInput = this.shadowRoot.getElementById('cfg-theme');
+    if (themeInput) {
+      themeInput.addEventListener('change', (ev) => {
+        const val = ev.target.value.trim();
+        this._updateConfig({ theme: val || undefined });
+      });
     }
 
     // Hook display switches & inputs

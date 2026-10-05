@@ -137,6 +137,7 @@ players:
 | `show_reset` | `boolean` | `false` | Button zum Zurücksetzen aller Zähler |
 | `reset_text` | `string` | `Wochen-Scoreboard zurücksetzen` | Text des Reset-Buttons |
 | `reset_confirm` | `string` | `...` | Bestätigungstext vor dem Reset |
+| `theme` | `string` | *Standard (leer)* | Optional: Spezifisches Home Assistant Theme (z. B. `ios-dark`, `vintage`) erzwingen oder leer lassen für das vom Benutzer gewählte Theme |
 | `levels` | `list` | *Standard-Ränge* | Eigene Ränge und Schwellenwerte (optional) |
 
 ---
