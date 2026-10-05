@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.3.0';
+const CARD_VERSION = '1.3.1';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -126,7 +126,10 @@ class HouseholdScoreboardCard extends HTMLElement {
       this._soundMuted = localStorage.getItem('hsc_sound_muted') === 'true';
     } catch (e) {}
     this._rouletteSpinning = false;
+    this._rouletteTargetItem = null;
+    this._completingTasks = new Set();
     this._handledNotificationActions = new Set();
+    this._activeNotifications = new Map();
     this._notifSub = null;
   }
 
@@ -285,39 +288,25 @@ class HouseholdScoreboardCard extends HTMLElement {
     const parts = actionString.split('|');
     if (parts.length < 5) return;
     const [_, todoEntity, itemId, playerEntity, xpStr] = parts;
-    const xp = parseInt(xpStr, 10) || 10;
+
+    // 1. Close roulette modal immediately if it was open on the dashboard
+    this._closeRouletteModal();
+
+    // 2. Fetch fresh items if needed to verify state
+    let item = (this._todoItems || []).find(i => (i.uid === itemId || i.id === itemId || i.summary === itemId));
+    if (!item && this._hass && this._config.todo_entity) {
+      await this._fetchTodoItems();
+      item = (this._todoItems || []).find(i => (i.uid === itemId || i.id === itemId || i.summary === itemId));
+    }
 
     const players = this._config.players || [];
     const player = players.find(p => p.entity === playerEntity) || { entity: playerEntity, name: 'Spieler' };
 
-    // Find the item in our list if available
-    const item = (this._todoItems || []).find(i => (i.uid === itemId || i.id === itemId || i.summary === itemId));
     if (item) {
-      if (item.status === 'completed') return; // already done, avoid duplicate credit
       const meta = this._parseTodoMetadata(item);
       await this._completeTask(item, player, meta);
     } else {
-      // Direct update via Home Assistant API
-      this._adjustScore(player, xp);
-      this._playSound('coin');
-      this._forwardHaptic('success');
-      try {
-        await this._hass.callWS({
-          type: 'todo/item/update',
-          entity_id: todoEntity || this._config.todo_entity,
-          item: itemId,
-          status: 'completed'
-        });
-      } catch (e) {
-        try {
-          await this._callService('todo', 'update_item', {
-            entity_id: todoEntity || this._config.todo_entity,
-            item: itemId,
-            status: 'completed'
-          });
-        } catch (e2) {}
-      }
-      this._fetchTodoItems();
+      this._dismissTaskNotification({ uid: itemId, summary: itemId }, player);
     }
   }
 
@@ -380,6 +369,8 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     try {
       await this._hass.callService(domain, service, payload);
+      if (!this._activeNotifications) this._activeNotifications = new Map();
+      this._activeNotifications.set(itemId, notifyService);
       this._forwardHaptic('success');
       this._playSound('coin');
       return true;
@@ -392,6 +383,8 @@ class HouseholdScoreboardCard extends HTMLElement {
           message,
           data: payload.data
         });
+        if (!this._activeNotifications) this._activeNotifications = new Map();
+        this._activeNotifications.set(itemId, notifyService);
         this._forwardHaptic('success');
         this._playSound('coin');
         return true;
@@ -399,6 +392,49 @@ class HouseholdScoreboardCard extends HTMLElement {
         console.error('HouseholdScoreboardCard: error sending notification', err2);
         alert(`Fehler beim Senden der Benachrichtigung via ${notifyService}:\n${err2.message || err2}`);
         return false;
+      }
+    }
+  }
+
+  async _dismissTaskNotification(item, player = null) {
+    if (!item) return;
+    const itemId = item.uid || item.id || item.summary;
+    if (!itemId) return;
+    const tag = `hsc_task_${itemId}`;
+
+    const notifyServices = new Set();
+
+    if (this._activeNotifications && this._activeNotifications.has(itemId)) {
+      notifyServices.add(this._activeNotifications.get(itemId));
+      this._activeNotifications.delete(itemId);
+    }
+
+    if (player) {
+      const s = this._resolveNotifyService(player);
+      if (s) notifyServices.add(s);
+    }
+
+    // Fallback: check all configured players
+    if (notifyServices.size === 0 && this._config && this._config.players) {
+      this._config.players.forEach(p => {
+        const s = this._resolveNotifyService(p);
+        if (s) notifyServices.add(s);
+      });
+    }
+
+    for (const notifyService of notifyServices) {
+      try {
+        const rawService = notifyService.replace(/^notify\./, '');
+        const serviceParts = rawService.split('.');
+        const domain = serviceParts.length > 1 ? serviceParts[0] : 'notify';
+        const service = serviceParts.length > 1 ? serviceParts[1] : serviceParts[0];
+
+        await this._hass.callService(domain, service, {
+          message: 'clear_notification',
+          data: { tag }
+        });
+      } catch (err) {
+        // Silently ignore dismiss errors
       }
     }
   }
@@ -607,6 +643,7 @@ class HouseholdScoreboardCard extends HTMLElement {
     winnerWrap.style.display = 'none';
     modal.style.display = 'flex';
 
+    this._rouletteTargetItem = targetItem;
     this._spinRoulette(targetItem, meta, players);
   }
 
@@ -614,6 +651,7 @@ class HouseholdScoreboardCard extends HTMLElement {
     const modal = this.shadowRoot.getElementById('roulette-modal');
     if (modal) modal.style.display = 'none';
     this._rouletteSpinning = false;
+    this._rouletteTargetItem = null;
   }
 
   _spinRoulette(targetItem, meta, players) {
@@ -900,6 +938,17 @@ class HouseholdScoreboardCard extends HTMLElement {
         this._todoItems = res.items;
         await this._checkAndAutoReset();
         this._updateTodoSection();
+
+        // Check if currently displayed roulette item was completed elsewhere
+        if (this._rouletteTargetItem) {
+          const targetUid = this._rouletteTargetItem.uid || this._rouletteTargetItem.id || this._rouletteTargetItem.summary;
+          const freshTarget = res.items.find(i => (i.uid === targetUid || i.id === targetUid || i.summary === targetUid));
+          if (!freshTarget || freshTarget.status === 'completed') {
+            console.log('HouseholdScoreboardCard: Roulette item completed or removed, closing modal');
+            this._closeRouletteModal();
+            this._dismissTaskNotification(this._rouletteTargetItem);
+          }
+        }
       }
     } catch (err) {
       console.warn('HouseholdScoreboardCard: error fetching todo items', err);
@@ -1319,71 +1368,128 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 
   async _completeTask(item, player, meta) {
-    this._forwardHaptic('success');
-    this._fireConfetti();
-    this._recordPlayerStreak(player);
-    if (meta.extraXp > 0) {
-      this._playSound('fanfare');
-    } else {
-      this._playSound('coin');
-    }
-
-    // 1. Award XP to player
-    this._adjustScore(player, meta.totalXp);
-
-    // 2. Prepare description with [done: YYYY-MM-DD]
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    
-    let updatedDesc = item.description || '';
-    if (/\[done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\]/i.test(updatedDesc)) {
-      updatedDesc = updatedDesc.replace(/\[done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\]/i, `[done: ${todayStr}]`);
-    } else if (/done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}/i.test(updatedDesc)) {
-      updatedDesc = updatedDesc.replace(/done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}/i, `done: ${todayStr}`);
-    } else if (meta.resetDays) {
-      updatedDesc = (updatedDesc + `\n[done: ${todayStr}]`).trim();
-    }
-
-    // Optimistically update local item state
-    item.status = 'completed';
-    this._updateTodoSection();
-
-    // 3. Call Home Assistant API to mark completed and update description
+    if (!item) return;
     const itemId = item.uid || item.id || item.summary;
     if (!itemId) {
-      console.error('HouseholdScoreboardCard: No valid item identifier (uid, id, summary) found on item', item);
+      console.error('HouseholdScoreboardCard: No valid item identifier found on item', item);
       return;
     }
 
+    const taskKey = `${this._config.todo_entity}:${itemId}`;
+
+    // 0. Concurrency & duplicate prevention check
+    if (!this._completingTasks) this._completingTasks = new Set();
+    if (this._completingTasks.has(taskKey)) {
+      console.log('HouseholdScoreboardCard: Task completion already in progress for', taskKey);
+      return;
+    }
+    this._completingTasks.add(taskKey);
+
     try {
-      await this._hass.callWS({
-        type: 'todo/item/update',
-        entity_id: this._config.todo_entity,
-        item: itemId,
-        status: 'completed',
-        description: updatedDesc
-      });
-    } catch (err) {
-      console.warn('HouseholdScoreboardCard: error updating todo item with description, trying without description', err);
+      // 1. Check if already marked completed locally
+      if (item.status === 'completed') {
+        console.warn('HouseholdScoreboardCard: Task already completed locally', item);
+        this._closeRouletteModal();
+        this._dismissTaskNotification(item);
+        return;
+      }
+
+      // 2. Fresh verification check: Query Home Assistant to see if task was already completed elsewhere!
+      if (this._hass && this._config.todo_entity) {
+        try {
+          const freshRes = await this._hass.callWS({
+            type: 'todo/item/list',
+            entity_id: this._config.todo_entity
+          });
+          if (freshRes && freshRes.items) {
+            this._todoItems = freshRes.items;
+            const freshItem = freshRes.items.find(i => (i.uid === itemId || i.id === itemId || i.summary === itemId));
+            if (freshItem && freshItem.status === 'completed') {
+              console.warn('HouseholdScoreboardCard: Task was already completed elsewhere in Home Assistant!');
+              this._closeRouletteModal();
+              this._dismissTaskNotification(freshItem || item);
+              this._updateTodoSection();
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn('HouseholdScoreboardCard: could not query fresh todo list, proceeding with local state', e);
+        }
+      }
+
+      // 3. Close roulette modal & clear phone notification immediately
+      this._closeRouletteModal();
+      this._dismissTaskNotification(item, player);
+
+      // 4. Celebrate & feedback
+      this._forwardHaptic('success');
+      this._fireConfetti();
+      this._recordPlayerStreak(player);
+      if (meta && meta.extraXp > 0) {
+        this._playSound('fanfare');
+      } else {
+        this._playSound('coin');
+      }
+
+      // 5. Award XP to player
+      const xpToAdd = meta ? meta.totalXp : 10;
+      this._adjustScore(player, xpToAdd);
+
+      // 6. Prepare description with [done: YYYY-MM-DD]
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      let updatedDesc = item.description || '';
+      if (/\[done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\]/i.test(updatedDesc)) {
+        updatedDesc = updatedDesc.replace(/\[done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\]/i, `[done: ${todayStr}]`);
+      } else if (/done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}/i.test(updatedDesc)) {
+        updatedDesc = updatedDesc.replace(/done:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}/i, `done: ${todayStr}`);
+      } else if (meta && meta.resetDays) {
+        updatedDesc = (updatedDesc ? updatedDesc + '\n' : '') + `[done: ${todayStr}]`;
+      }
+
+      // Optimistically update local item state
+      item.status = 'completed';
+      this._updateTodoSection();
+
+      // 7. Call Home Assistant API to mark completed and update description
       try {
         await this._hass.callWS({
           type: 'todo/item/update',
           entity_id: this._config.todo_entity,
           item: itemId,
-          status: 'completed'
+          status: 'completed',
+          description: updatedDesc
         });
-      } catch (err2) {
-        console.warn('HouseholdScoreboardCard: error updating via WS, trying service fallback', err2);
+      } catch (err) {
+        console.warn('HouseholdScoreboardCard: error updating todo item with description, trying without description', err);
         try {
-          await this._callService('todo', 'update_item', {
+          await this._hass.callWS({
+            type: 'todo/item/update',
             entity_id: this._config.todo_entity,
             item: itemId,
             status: 'completed'
           });
-        } catch (e) {
-          console.error('HouseholdScoreboardCard: service fallback failed', e);
+        } catch (err2) {
+          console.warn('HouseholdScoreboardCard: error updating via WS, trying service fallback', err2);
+          try {
+            await this._callService('todo', 'update_item', {
+              entity_id: this._config.todo_entity,
+              item: itemId,
+              status: 'completed'
+            });
+          } catch (e) {
+            console.error('HouseholdScoreboardCard: service fallback failed', e);
+          }
         }
       }
+    } finally {
+      // Keep lock for 2 seconds to prevent rapid double-clicks
+      setTimeout(() => {
+        if (this._completingTasks) {
+          this._completingTasks.delete(taskKey);
+        }
+      }, 2000);
     }
   }
 

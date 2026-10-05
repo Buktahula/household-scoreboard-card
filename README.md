@@ -176,7 +176,7 @@ Küche putzen [täglich] [+10/Tag] [icon: 🧽]
 
 ---
 
-### 📱 Actionable Push-Benachrichtigungen (Aufgaben direkt am Handy abhaken)
+### 📱 Actionable Push-Benachrichtigungen & Smarte Synchronisation
 
 Wenn eine Aufgabe per Aufgaben-Roulette 🎲 ausgelost wird, kannst du die Person direkt per Button benachrichtigen:
 
@@ -185,10 +185,13 @@ Wenn eine Aufgabe per Aufgaben-Roulette 🎲 ausgelost wird, kannst du die Perso
    > **🎲 Haushalts-Roulette: Du bist dran!**  
    > *Hey Alex! Das Los hat entschieden: Bitte erledige "Spülmaschine ausräumen" (+25 XP)!*  
    > **[ ✅ Erledigt (+25 XP) ]**
-3. **Direkt am Handy erledigen:** Tippt die Person auf den Button **"✅ Erledigt"**, wird die To-Do-Aufgabe in Home Assistant automatisch als erledigt markiert und die XP werden dem Spieler gutgeschrieben!
+3. **Beidseitige Live-Synchronisation & Auto-Dismiss:**
+   * 📲 **Vom Handy erledigt:** Tippt die Person in der Benachrichtigung auf *„✅ Erledigt“*, schließt sich das Roulette-Fenster auf dem Dashboard sofort automatisch und die Punkte werden gutgeschrieben.
+   * 🖥️ **Am Dashboard erledigt:** Hakt jemand die Aufgabe am Dashboard ab, wird die Push-Benachrichtigung auf dem Smartphone automatisch aus der Benachrichtigungsleiste entfernt (`clear_notification`)!
+   * 🛡️ **Doppelpunkte-Schutz:** Vor jeder Punktevergabe prüft das System in Echtzeit gegen Home Assistant, ob die Aufgabe in der Zwischenzeit bereits anderweitig erledigt wurde. Doppelte Punktevergaben sind dadurch ausgeschlossen.
 
 #### 💡 24/7 Hintergrund-Automation (Optional)
-Wenn das Dashboard auf einem Wandtablet geöffnet ist, verarbeitet die Karte den Klick automatisch live. Damit das Abhaken per Smartphone auch dann zu 100% zuverlässig im Hintergrund funktioniert, wenn gerade kein Dashboard-Fenster geöffnet ist, kannst du diese einfache Automation in Home Assistant anlegen:
+Wenn das Dashboard auf einem Wandtablet geöffnet ist, verarbeitet die Karte den Klick automatisch live. Damit das Abhaken per Smartphone auch dann zu 100% zuverlässig im Hintergrund funktioniert, wenn gerade kein Dashboard-Fenster geöffnet ist, kannst du diese Automation in Home Assistant anlegen:
 
 ```yaml
 alias: "Haushalt: Aufgabe per Benachrichtigung erledigen"
@@ -206,6 +209,17 @@ action:
       item_id: "{{ parts[2] }}"
       player_entity: "{{ parts[3] }}"
       xp: "{{ parts[4] | int }}"
+  # Status prüfen: Nur ausführen, falls Aufgabe noch offen ist (verhindert doppelte Punkte)
+  - service: todo.get_items
+    target:
+      entity_id: "{{ todo_entity }}"
+    data:
+      status: needs_action
+    response_variable: todo_result
+  - condition: template
+    value_template: >
+      {{ todo_result[todo_entity].items | selectattr('uid', 'eq', item_id) | list | length > 0
+         or todo_result[todo_entity].items | selectattr('summary', 'eq', item_id) | list | length > 0 }}
   - service: todo.update_item
     target:
       entity_id: "{{ todo_entity }}"
