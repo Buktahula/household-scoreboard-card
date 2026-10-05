@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.2.0';
+const CARD_VERSION = '1.2.1';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -437,7 +437,7 @@ class HouseholdScoreboardCard extends HTMLElement {
     if (!modal) return;
 
     const unit = this._config.unit || 'XP';
-    taskTitle.textContent = targetItem.summary || 'Aufgabe';
+    taskTitle.textContent = meta.cleanSummary || targetItem.summary || 'Aufgabe';
     xpBadge.innerHTML = `⭐ <b>+${meta.totalXp} ${unit}</b> ${meta.icon ? `<span style="margin-left:6px;">${meta.icon}</span>` : ''}`;
 
     stage.style.display = 'block';
@@ -723,52 +723,136 @@ class HouseholdScoreboardCard extends HTMLElement {
     }
   }
 
+  _normalizeDate(dateStr) {
+    if (!dateStr) return null;
+    const s = String(dateStr).trim().toLowerCase();
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (s === 'heute' || s === 'today') {
+      return this._formatDate(today);
+    }
+    if (s === 'morgen' || s === 'tomorrow') {
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return this._formatDate(tomorrow);
+    }
+    if (s === 'übermorgen' || s === 'uebermorgen') {
+      const overmorrow = new Date(today);
+      overmorrow.setDate(overmorrow.getDate() + 2);
+      return this._formatDate(overmorrow);
+    }
+
+    // Match ISO: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS
+    const mIso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (mIso) {
+      const y = parseInt(mIso[1], 10);
+      const m = String(parseInt(mIso[2], 10)).padStart(2, '0');
+      const d = String(parseInt(mIso[3], 10)).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    // Match German: DD.MM.YYYY or DD.MM.
+    const mDe = s.match(/^(\d{1,2})\.(\d{1,2})\.(?:(\d{4}))?/);
+    if (mDe) {
+      const d = String(parseInt(mDe[1], 10)).padStart(2, '0');
+      const m = String(parseInt(mDe[2], 10)).padStart(2, '0');
+      const y = mDe[3] ? parseInt(mDe[3], 10) : today.getFullYear();
+      return `${y}-${m}-${d}`;
+    }
+
+    return null;
+  }
+
+  _formatDisplayDate(isoDate) {
+    if (!isoDate) return '';
+    const parts = isoDate.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}.${parts[1]}.${parts[0]}`;
+    }
+    return isoDate;
+  }
+
   _parseTodoMetadata(item) {
+    const summary = item.summary || '';
     const desc = item.description || '';
-    const dueDateStr = item.due || item.due_date;
+    // Combine summary and description so tags work in both places
+    const fullText = `${summary}\n${desc}`;
+    const dueDateStr = item.due || item.due_date || item.due_datetime;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     // 1. XP (default 10)
-    const xpMatch = desc.match(/(?:\[|\b)(?:xp|punkte|points)\s*[:=]\s*(\d+)(?:\]|\b)/i);
-    const baseXp = xpMatch ? parseInt(xpMatch[1], 10) : 10;
+    // Matches: [xp: 25], [xp 25], [25 xp], [25xp], [punkte: 25], [25 punkte], [points: 25], [25 points], xp: 25
+    let baseXp = 10;
+    const xpMatch1 = fullText.match(/(?:^|[\[\s,;])(?:xp|punkte|points)\s*[:=]?\s*(\d+)(?:[\]\s,;]|$)/i);
+    const xpMatch2 = fullText.match(/(?:^|[\[\s,;])(\d+)\s*(?:xp|punkte|points)(?:[\]\s,;]|$)/i);
+    if (xpMatch1) {
+      baseXp = parseInt(xpMatch1[1], 10);
+    } else if (xpMatch2) {
+      baseXp = parseInt(xpMatch2[1], 10);
+    }
 
     // 2. Reset interval in days
-    // e.g. reset: 3 or reset: 1 or reset: daily (1) or reset: weekly (7)
+    // Matches: [reset: 3], [reset 3], [alle 3 Tage], [3 Tage], [täglich] (1), [wöchentlich] (7)
     let resetDays = null;
-    const resetMatch = desc.match(/(?:\[|\b)(?:reset|recur|repeat|intervall|tage|days)\s*[:=]\s*(\w+)(?:\]|\b)/i);
+    const resetMatch = fullText.match(/(?:^|[\[\s,;])(?:reset|recur|repeat|intervall|wiederholung)\s*[:=]?\s*(\w+)(?:[\]\s,;]|$)/i);
+    const daysMatch = fullText.match(/(?:^|[\[\s,;])(?:alle\s+)?(\d+)\s*(?:tage|days)(?:[\]\s,;]|$)/i);
+    const dailyMatch = fullText.match(/(?:^|[\[\s,;])(?:daily|taeglich|täglich)(?:[\]\s,;]|$)/i);
+    const weeklyMatch = fullText.match(/(?:^|[\[\s,;])(?:weekly|woechentlich|wöchentlich)(?:[\]\s,;]|$)/i);
+
     if (resetMatch) {
       const val = resetMatch[1].toLowerCase();
       if (val === 'daily' || val === 'taeglich' || val === 'täglich') resetDays = 1;
       else if (val === 'weekly' || val === 'woechentlich' || val === 'wöchentlich') resetDays = 7;
       else if (!isNaN(parseInt(val, 10))) resetDays = parseInt(val, 10);
+    } else if (daysMatch) {
+      resetDays = parseInt(daysMatch[1], 10);
+    } else if (dailyMatch) {
+      resetDays = 1;
+    } else if (weeklyMatch) {
+      resetDays = 7;
     }
 
     // 3. Bonus per day overdue
-    const bonusMatch = desc.match(/(?:\[|\b)(?:bonus|kopfgeld|escalate|bounty|plus)\s*[:=]\s*\+?(\d+)(?:\]|\b)/i);
-    const bonusPerDay = bonusMatch ? parseInt(bonusMatch[1], 10) : 0;
+    // Matches: [bonus: +10], [bonus: 10], [bonus 10], [+10 bonus], [+10/tag], [kopfgeld: 10], [kopfgeld +10]
+    let bonusPerDay = 0;
+    const bonusMatch1 = fullText.match(/(?:^|[\[\s,;])(?:bonus|kopfgeld|escalate|bounty)\s*[:=]?\s*\+?(\d+)(?:[\]\s,;]|$)/i);
+    const bonusMatch2 = fullText.match(/(?:^|[\[\s,;])\+(\d+)(?:\s*(?:bonus|xp|punkte|kopfgeld|\/tag|\/d))?(?:[\]\s,;]|$)/i);
+    if (bonusMatch1) {
+      bonusPerDay = parseInt(bonusMatch1[1], 10);
+    } else if (bonusMatch2) {
+      bonusPerDay = parseInt(bonusMatch2[1], 10);
+    }
 
-    // 4. Last done timestamp (YYYY-MM-DD)
-    const doneMatch = desc.match(/(?:\[|\b)(?:done|last_done|erledigt)\s*[:=]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})(?:\]|\b)/i);
-    const lastDone = doneMatch ? doneMatch[1] : null;
+    // 4. Last done timestamp
+    const doneMatch = fullText.match(/(?:^|[\[\s,;])(?:done|last_done|erledigt)\s*[:=]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|\d{1,2}\.\d{1,2}\.(?:\d{4})?)(?:[\]\s,;]|$)/i);
+    const lastDone = doneMatch ? this._normalizeDate(doneMatch[1]) : null;
 
-    // 5. Due date resolution
-    const dueTagMatch = desc.match(/(?:\[|\b)(?:due|faellig|fällig)\s*[:=]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})(?:\]|\b)/i);
-    const effectiveDueDate = (dueDateStr ? dueDateStr.split('T')[0] : null) || (dueTagMatch ? dueTagMatch[1] : null);
+    // 5. Due date resolution (HA native due date or tag: [fällig: ...], [due: ...], [bis: ...])
+    const dueTagMatch = fullText.match(/(?:^|[\[\s,;])(?:due|faellig|fällig|bis)\s*[:=]?\s*([^\s\]]+)(?:[\]\s,;]|$)/i);
+    const rawDueDate = (dueTagMatch ? dueTagMatch[1] : null) || dueDateStr;
+    const effectiveDueDate = this._normalizeDate(rawDueDate);
 
     // 6. Overdue days calculation
     let overdueDays = 0;
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let daysUntilDue = null;
 
     if (effectiveDueDate) {
       const [y, m, d] = effectiveDueDate.split('-').map(Number);
       const dueDate = new Date(y, m - 1, d);
       const diffTime = today.getTime() - dueDate.getTime();
-      overdueDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      overdueDays = Math.max(0, diffDays);
+      daysUntilDue = -diffDays;
     } else if (lastDone && resetDays) {
       const [y, m, d] = lastDone.split('-').map(Number);
       const targetDue = new Date(y, m - 1, d + resetDays);
       const diffTime = today.getTime() - targetDue.getTime();
-      overdueDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      overdueDays = Math.max(0, diffDays);
+      daysUntilDue = -diffDays;
     }
 
     const extraXp = overdueDays * bonusPerDay;
@@ -779,11 +863,11 @@ class HouseholdScoreboardCard extends HTMLElement {
     let category = 'Aufgabe';
     let categoryColor = '#ffd700';
 
-    const iconTag = desc.match(/(?:\[|\b)icon\s*[:=]\s*(\S+)(?:\]|\b)/i) || (item.summary || '').match(/(?:\[|\b)icon\s*[:=]\s*(\S+)(?:\]|\b)/i);
-    const catTag = desc.match(/(?:\[|\b)(?:cat|kategorie|category)\s*[:=]\s*(\w+)(?:\]|\b)/i);
+    const iconTag = fullText.match(/(?:^|[\[\s,;])icon\s*[:=]?\s*(\S+?)(?:[\]\s,;]|$)/i);
+    const catTag = fullText.match(/(?:^|[\[\s,;])(?:cat|kategorie|category)\s*[:=]?\s*(\w+)(?:[\]\s,;]|$)/i);
 
     if (iconTag) {
-      icon = iconTag[1].replace(/\]/g, '');
+      icon = iconTag[1].replace(/[\[\]]/g, '');
     } else if (catTag) {
       const found = TASK_CATEGORY_MAP.find(c => c.name.toLowerCase().includes(catTag[1].toLowerCase()));
       if (found) {
@@ -792,7 +876,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         categoryColor = found.color;
       }
     } else {
-      const textToSearch = `${item.summary || ''} ${desc}`.toLowerCase();
+      const textToSearch = fullText.toLowerCase();
       for (const c of TASK_CATEGORY_MAP) {
         if (c.keywords.some(kw => textToSearch.includes(kw))) {
           icon = c.icon;
@@ -803,11 +887,18 @@ class HouseholdScoreboardCard extends HTMLElement {
       }
     }
 
-    // Clean description without metadata brackets for neat UI
-    const cleanDesc = desc
-      .replace(/\[\s*(?:xp|punkte|points|reset|recur|repeat|intervall|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig|icon|cat|kategorie|category)\s*[:=][^\]]+\]/gi, '')
-      .replace(/(?:^|\n)\s*(?:xp|punkte|points|reset|recur|repeat|intervall|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig|icon|cat|kategorie|category)\s*[:=].*$/gim, '')
-      .trim();
+    // Clean text helper (removes tags from UI display so tasks look clean)
+    const cleanTags = (t) => {
+      if (!t) return '';
+      return t
+        .replace(/\[\s*(?:\d+\s*(?:xp|punkte|points)|xp|punkte|points|reset|recur|repeat|intervall|wiederholung|tage|days|alle|daily|taeglich|täglich|weekly|woechentlich|wöchentlich|bonus|kopfgeld|escalate|bounty|plus|\+\d+|done|last_done|erledigt|due|faellig|fällig|bis|icon|cat|kategorie|category)[^\]]*\]/gi, '')
+        .replace(/(?:^|\n)\s*(?:xp|punkte|points|reset|recur|repeat|intervall|wiederholung|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig|fällig|bis|icon|cat|kategorie|category)\s*[:=].*$/gim, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const cleanSummary = cleanTags(summary) || summary || 'Unbenannte Aufgabe';
+    const cleanDesc = cleanTags(desc);
 
     return {
       baseXp,
@@ -815,9 +906,12 @@ class HouseholdScoreboardCard extends HTMLElement {
       bonusPerDay,
       lastDone,
       effectiveDueDate,
+      displayDueDate: this._formatDisplayDate(effectiveDueDate),
+      daysUntilDue,
       overdueDays,
       extraXp,
       totalXp,
+      cleanSummary,
       cleanDesc,
       icon,
       category,
@@ -845,13 +939,16 @@ class HouseholdScoreboardCard extends HTMLElement {
 
             if (diffDays >= meta.resetDays) {
               resetCount++;
-              await this._hass.callWS({
-                type: 'todo/item/update',
-                entity_id: this._config.todo_entity,
-                item: item.id,
-                status: 'needs_action',
-                due_date: todayStr
-              });
+              const itemId = item.uid || item.id || item.summary;
+              if (itemId) {
+                await this._hass.callWS({
+                  type: 'todo/item/update',
+                  entity_id: this._config.todo_entity,
+                  item: itemId,
+                  status: 'needs_action',
+                  due_date: todayStr
+                });
+              }
               item.status = 'needs_action';
               item.due = todayStr;
             }
@@ -913,8 +1010,12 @@ class HouseholdScoreboardCard extends HTMLElement {
 
       let badgesHtml = `<span class="todo-pill badge-xp">⭐ +${meta.totalXp} ${unit}</span>`;
 
-      if (meta.extraXp > 0) {
-        badgesHtml += `<span class="todo-pill badge-bounty" title="${meta.overdueDays} Tag(e) überfällig (+${meta.bonusPerDay} XP/Tag)">🔥 +${meta.extraXp} Kopfgeld</span>`;
+      if (meta.bonusPerDay > 0) {
+        if (meta.overdueDays > 0) {
+          badgesHtml += `<span class="todo-pill badge-bounty" title="${meta.overdueDays} Tag(e) überfällig (+${meta.bonusPerDay} ${unit}/Tag)">🔥 +${meta.extraXp} Kopfgeld (+${meta.bonusPerDay}/Tag)</span>`;
+        } else {
+          badgesHtml += `<span class="todo-pill badge-bounty-idle" title="Kopfgeld: +${meta.bonusPerDay} ${unit} pro Tag bei Überfälligkeit">🔥 +${meta.bonusPerDay}/Tag Kopfgeld</span>`;
+        }
       }
 
       if (meta.resetDays) {
@@ -925,7 +1026,13 @@ class HouseholdScoreboardCard extends HTMLElement {
       if (meta.overdueDays > 0) {
         badgesHtml += `<span class="todo-pill badge-overdue">⚠️ ${meta.overdueDays}d überfällig</span>`;
       } else if (meta.effectiveDueDate) {
-        badgesHtml += `<span class="todo-pill badge-due">📅 ${meta.effectiveDueDate}</span>`;
+        if (meta.daysUntilDue === 0) {
+          badgesHtml += `<span class="todo-pill badge-due-today">📅 Heute fällig</span>`;
+        } else if (meta.daysUntilDue === 1) {
+          badgesHtml += `<span class="todo-pill badge-due">📅 Morgen fällig</span>`;
+        } else {
+          badgesHtml += `<span class="todo-pill badge-due">📅 Fällig: ${meta.displayDueDate}</span>`;
+        }
       }
 
       const showIcons = this._config.show_task_icons !== false;
@@ -941,7 +1048,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           </div>
         ` : ''}
         <div class="todo-info">
-          <div class="todo-summary">${item.summary || 'Unbenannte Aufgabe'}</div>
+          <div class="todo-summary">${meta.cleanSummary}</div>
           ${meta.cleanDesc ? `<div class="todo-desc">${meta.cleanDesc}</div>` : ''}
           <div class="todo-badges">${badgesHtml}</div>
         </div>
@@ -993,7 +1100,7 @@ class HouseholdScoreboardCard extends HTMLElement {
     if (!modal || !grid) return;
 
     const unit = this._config.unit || 'XP';
-    taskTitle.textContent = item.summary || 'Aufgabe';
+    taskTitle.textContent = meta.cleanSummary || item.summary || 'Aufgabe';
     xpBadge.innerHTML = `⭐ <b>+${meta.totalXp} ${unit}</b> ${meta.extraXp > 0 ? `<span style="color:#ff5722;">(inkl. 🔥 +${meta.extraXp} Kopfgeld)</span>` : ''}`;
 
     grid.innerHTML = '';
@@ -1059,24 +1166,40 @@ class HouseholdScoreboardCard extends HTMLElement {
     this._updateTodoSection();
 
     // 3. Call Home Assistant API to mark completed and update description
+    const itemId = item.uid || item.id || item.summary;
+    if (!itemId) {
+      console.error('HouseholdScoreboardCard: No valid item identifier (uid, id, summary) found on item', item);
+      return;
+    }
+
     try {
       await this._hass.callWS({
         type: 'todo/item/update',
         entity_id: this._config.todo_entity,
-        item: item.id,
+        item: itemId,
         status: 'completed',
         description: updatedDesc
       });
     } catch (err) {
-      console.warn('HouseholdScoreboardCard: error updating todo item', err);
+      console.warn('HouseholdScoreboardCard: error updating todo item with description, trying without description', err);
       try {
-        await this._callService('todo', 'update_item', {
+        await this._hass.callWS({
+          type: 'todo/item/update',
           entity_id: this._config.todo_entity,
-          item: item.id,
+          item: itemId,
           status: 'completed'
         });
-      } catch (e) {
-        console.error('HouseholdScoreboardCard: service fallback failed', e);
+      } catch (err2) {
+        console.warn('HouseholdScoreboardCard: error updating via WS, trying service fallback', err2);
+        try {
+          await this._callService('todo', 'update_item', {
+            entity_id: this._config.todo_entity,
+            item: itemId,
+            status: 'completed'
+          });
+        } catch (e) {
+          console.error('HouseholdScoreboardCard: service fallback failed', e);
+        }
       }
     }
   }
@@ -1673,6 +1796,17 @@ class HouseholdScoreboardCard extends HTMLElement {
           background: rgba(255, 82, 82, 0.18);
           color: #ff5252;
           border: 1px solid rgba(255, 82, 82, 0.35);
+        }
+        .badge-bounty-idle {
+          color: #ff9800;
+          background: rgba(255, 152, 0, 0.12);
+          border: 1px solid rgba(255, 152, 0, 0.25);
+        }
+        .badge-due-today {
+          color: #ffd700;
+          background: rgba(255, 215, 0, 0.15);
+          border: 1px solid rgba(255, 215, 0, 0.35);
+          font-weight: 700;
         }
         .todo-empty {
           text-align: center;

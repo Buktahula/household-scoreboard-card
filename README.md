@@ -141,22 +141,25 @@ players:
 
 ---
 
-### 📋 Aufgaben-Tags in der To-Do-Beschreibung
+### 📋 Aufgaben-Tags (im Titel oder in der Beschreibung)
 
-Du kannst in der Beschreibung jeder Home Assistant To-Do-Aufgabe flexible Tags hinterlegen:
+Du kannst Tags entweder direkt im **Aufgabentitel** (z. B. beim schnellen Hinzufügen) oder in der **Beschreibung** der Home Assistant To-Do-Aufgabe angeben. Tags im Titel werden auf der Karte automatisch ausgeblendet, sodass der Name sauber bleibt!
 
-| Tag | Bedeutung | Beispiel |
+| Tag | Bedeutung | Unterstützte Formate |
 | :--- | :--- | :--- |
-| `xp: X` | Basis-Belohnung in XP (Standard: 10) | `xp: 20` |
-| `reset: N` | Automatischer Reset nach N Tagen | `reset: 1` (täglich), `reset: 3` (alle 3 Tage), `reset: 7` (wöchentlich) |
-| `bonus: +B` | Zusätzliches Kopfgeld pro überfälligem Tag | `bonus: +10` |
-| `icon: EMOJI` | Manuelles Emoji-Icon für die Aufgabe | `icon: 🍕` oder `icon: 🧹` |
-| `cat: NAME` | Manuelle Kategorie | `cat: kueche`, `cat: muell`, `cat: bad` |
+| **XP / Punkte** | Basis-Belohnung (Standard: 10 XP) | `[xp: 25]`, `[25 xp]`, `xp: 25`, `[punkte: 20]`, `[20 punkte]` |
+| **Fälligkeit** | Fälligkeitsdatum | `[fällig: morgen]`, `[fällig: heute]`, `[fällig: 15.10.2026]`, `[due: 2026-10-15]` *(oder natives HA-Fälligkeitsdatum)* |
+| **Kopfgeld (Bonus)** | Zusätzliche XP pro Tag bei Überfälligkeit | `[bonus: +10]`, `[bonus: 10]`, `[+10/Tag]`, `[kopfgeld: 10]`, `bonus: +5` |
+| **Wiederholung** | Automatischer Reset nach N Tagen | `[täglich]`, `[reset: 1]`, `[alle 3 Tage]`, `[wöchentlich]`, `[reset: 7]` |
+| **Icon** | Manuelles Emoji-Icon für die Aufgabe | `[icon: 🍕]`, `[icon: 🧹]`, `icon: 🧺` |
+| **Kategorie** | Manuelle Kategorie für Farb-Akzent | `[cat: kueche]`, `[cat: muell]`, `[cat: bad]` |
 
-*Beispiel für die Aufgaben-Beschreibung in Home Assistant:*
+*Beispiele für Aufgabennamen oder Beschreibungen in Home Assistant:*
 ```text
-[xp: 25] [reset: 2] [bonus: +10] [icon: 🍽️]
-Spülmaschine komplett ausräumen und Geschirr einsortieren.
+Spülmaschine ausräumen [xp: 25] [alle 2 Tage] [bonus: +5] [fällig: morgen]
+```
+```text
+Küche putzen [täglich] [+10/Tag] [icon: 🧽]
 ```
 
 ### Spieler-Optionen (`players`)
