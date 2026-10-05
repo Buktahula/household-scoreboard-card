@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.3.1';
+const CARD_VERSION = '1.3.2';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -117,7 +117,7 @@ class HouseholdScoreboardCard extends HTMLElement {
     this._hass = null;
     this._lastStateHash = '';
     this._lastTodoHash = '';
-    this._optimisticDeltas = {};
+    this._pendingTargets = {};
     this._todoItems = [];
     this._isResettingTodos = false;
     this._audioCtx = null;
@@ -243,6 +243,23 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     const stateChanged = currentHash !== this._lastStateHash;
     const todoChanged = todoHash !== this._lastTodoHash;
+
+    // Reconcile pending targets when Home Assistant updates
+    if (this._pendingTargets && this._config.players) {
+      this._config.players.forEach(p => {
+        const pending = this._pendingTargets[p.entity];
+        if (pending && hass.states[p.entity]) {
+          const val = parseFloat(hass.states[p.entity].state);
+          if (!isNaN(val)) {
+            if ((pending.direction > 0 && val >= pending.target) ||
+                (pending.direction < 0 && val <= pending.target)) {
+              if (pending.timer) clearTimeout(pending.timer);
+              delete this._pendingTargets[p.entity];
+            }
+          }
+        }
+      });
+    }
 
     if (stateChanged || todoChanged) {
       this._lastStateHash = currentHash;
@@ -816,8 +833,27 @@ class HouseholdScoreboardCard extends HTMLElement {
       const val = parseFloat(this._hass.states[player.entity].state);
       base = isNaN(val) ? 0 : val;
     }
-    const delta = this._optimisticDeltas[player.entity] || 0;
-    return Math.max(0, base + delta);
+
+    if (this._pendingTargets && this._pendingTargets[player.entity]) {
+      const pending = this._pendingTargets[player.entity];
+      if (pending.direction > 0) {
+        if (base >= pending.target) {
+          if (pending.timer) clearTimeout(pending.timer);
+          delete this._pendingTargets[player.entity];
+          return base;
+        }
+        return Math.max(base, pending.target);
+      } else {
+        if (base <= pending.target) {
+          if (pending.timer) clearTimeout(pending.timer);
+          delete this._pendingTargets[player.entity];
+          return base;
+        }
+        return Math.min(base, pending.target);
+      }
+    }
+
+    return Math.max(0, base);
   }
 
   _getSortedPlayers() {
@@ -857,23 +893,56 @@ class HouseholdScoreboardCard extends HTMLElement {
     this._hass.callService(domain, service, data);
   }
 
-  _adjustScore(player, amount) {
+  _adjustScore(player, amount, playSound = true, recordStreak = true) {
     this._forwardHaptic(amount > 0 ? 'success' : 'warning');
     if (amount > 0) {
-      this._recordPlayerStreak(player);
-      this._playSound('coin');
+      if (recordStreak) this._recordPlayerStreak(player);
+      if (playSound) this._playSound('coin');
     }
     
-    // Optimistic UI update
-    this._optimisticDeltas[player.entity] = (this._optimisticDeltas[player.entity] || 0) + amount;
+    // Calculate new target value based on confirmed HA state or current active target
+    let base = 0;
+    if (this._hass && this._hass.states[player.entity]) {
+      const val = parseFloat(this._hass.states[player.entity].state);
+      base = isNaN(val) ? 0 : val;
+    }
+
+    const prevTarget = (this._pendingTargets && this._pendingTargets[player.entity])
+      ? this._pendingTargets[player.entity].target
+      : base;
+
+    const newTarget = Math.max(0, prevTarget + amount);
+
+    if (!this._pendingTargets) this._pendingTargets = {};
+    if (this._pendingTargets[player.entity]?.timer) {
+      clearTimeout(this._pendingTargets[player.entity].timer);
+    }
+
+    // Safety timeout: revert if Home Assistant never confirms within 5 seconds
+    const timer = setTimeout(() => {
+      if (this._pendingTargets && this._pendingTargets[player.entity]) {
+        delete this._pendingTargets[player.entity];
+        this._updateData();
+      }
+    }, 5000);
+
+    this._pendingTargets[player.entity] = {
+      target: newTarget,
+      direction: amount >= 0 ? 1 : -1,
+      timer: timer
+    };
+
+    // Immediate optimistic UI update
     this._updateData();
 
-    // Call Home Assistant service
+    // Call Home Assistant service to update entity to newTarget
     const domain = player.entity.split('.')[0];
-    const cur = this._getPlayerPoints(player);
+    const cur = newTarget;
+
     if (domain === 'counter') {
-      const hasSetValue = this._hass && this._hass.services && this._hass.services.counter && this._hass.services.counter.set_value;
-      if (hasSetValue && Math.abs(amount) > 1) {
+      const hasCounter = this._hass && this._hass.services && this._hass.services.counter;
+      const canSetValue = !hasCounter || (hasCounter && hasCounter.set_value);
+      if (canSetValue || Math.abs(amount) > 1) {
         this._callService('counter', 'set_value', { entity_id: player.entity, value: cur });
       } else if (amount > 0) {
         for (let i = 0; i < amount; i++) {
@@ -885,7 +954,6 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
       }
     } else if (domain === 'input_number') {
-      const cur = this._getPlayerPoints(player);
       this._callService('input_number', 'set_value', {
         entity_id: player.entity,
         value: cur
@@ -895,14 +963,9 @@ class HouseholdScoreboardCard extends HTMLElement {
       const eventName = amount > 0 ? 'household_scoreboard_increment' : 'household_scoreboard_decrement';
       this._callService('event', 'fire', {
         event_type: eventName,
-        event_data: { entity_id: player.entity, amount }
+        event_data: { entity_id: player.entity, amount, value: cur }
       });
     }
-
-    // Reset optimistic buffer after short delay
-    setTimeout(() => {
-      delete this._optimisticDeltas[player.entity];
-    }, 1500);
   }
 
   _resetAll() {
@@ -923,7 +986,7 @@ class HouseholdScoreboardCard extends HTMLElement {
       });
     }
 
-    this._optimisticDeltas = {};
+    this._pendingTargets = {};
     this._updateData();
   }
 
@@ -1048,14 +1111,14 @@ class HouseholdScoreboardCard extends HTMLElement {
     }
 
     // 3. Bonus per day overdue
-    // Matches: [bonus: +10], [bonus: 10], [bonus 10], [+10 bonus], [+10/tag], [kopfgeld: 10], [kopfgeld +10]
+    // Matches: [bonus: +10], [bonus: 10], [bonus 10], [+10 bonus], [+10/tag], [kopfgeld: 10], [kopfgeld +10], [+10]
     let bonusPerDay = 0;
     const bonusMatch1 = fullText.match(/(?:^|[\[\s,;])(?:bonus|kopfgeld|escalate|bounty)\s*[:=]?\s*\+?(\d+)(?:[\]\s,;]|$)/i);
-    const bonusMatch2 = fullText.match(/(?:^|[\[\s,;])\+(\d+)(?:\s*(?:bonus|xp|punkte|kopfgeld|\/tag|\/d))?(?:[\]\s,;]|$)/i);
+    const bonusMatch2 = fullText.match(/(?:\[\+(\d+)\]|(?:^|[\[\s,;])\+(\d+)\s*(?:bonus|xp|punkte|kopfgeld|\/tag|\/d)(?:[\]\s,;]|$))/i);
     if (bonusMatch1) {
       bonusPerDay = parseInt(bonusMatch1[1], 10);
     } else if (bonusMatch2) {
-      bonusPerDay = parseInt(bonusMatch2[1], 10);
+      bonusPerDay = parseInt(bonusMatch2[1] || bonusMatch2[2], 10);
     }
 
     // 4. Last done timestamp
@@ -1431,9 +1494,9 @@ class HouseholdScoreboardCard extends HTMLElement {
         this._playSound('coin');
       }
 
-      // 5. Award XP to player
+      // 5. Award XP to player (suppress duplicate streak & sound since already celebrated above)
       const xpToAdd = meta ? meta.totalXp : 10;
-      this._adjustScore(player, xpToAdd);
+      this._adjustScore(player, xpToAdd, false, false);
 
       // 6. Prepare description with [done: YYYY-MM-DD]
       const now = new Date();
