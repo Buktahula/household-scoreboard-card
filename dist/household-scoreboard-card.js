@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.0.0';
+const CARD_VERSION = '1.2.0';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -33,6 +33,82 @@ const DEFAULT_COLORS = [
   '#ff5252'  // Red
 ];
 
+const TASK_CATEGORY_MAP = [
+  {
+    icon: '🍽️',
+    name: 'Küche',
+    color: '#ff9800',
+    keywords: ['spülmaschine', 'geschirr', 'abwasch', 'spülen', 'kochen', 'küche', 'kühlschrank', 'herd', 'backofen', 'teller', 'topf', 'pfanne', 'tisch decken', 'kitchen', 'dish', 'dishwasher', 'cook', 'bake']
+  },
+  {
+    icon: '🗑️',
+    name: 'Müll',
+    color: '#8d6e63',
+    keywords: ['müll', 'abfall', 'tonne', 'gelber sack', 'altpapier', 'glascontainer', 'biomüll', 'kompost', 'wertstoff', 'trash', 'garbage', 'recycle', 'bin']
+  },
+  {
+    icon: '🧹',
+    name: 'Boden & Saugen',
+    color: '#00bcd4',
+    keywords: ['saugen', 'staubsaugen', 'wischen', 'boden', 'fegen', 'kehren', 'staub', 'roboter', 'sauger', 'vacuum', 'sweep', 'mop', 'dust']
+  },
+  {
+    icon: '🧺',
+    name: 'Wäsche',
+    color: '#ab47bc',
+    keywords: ['wäsche', 'waschen', 'waschmaschine', 'bügeln', 'trockner', 'aufhängen', 'zusammenlegen', 'bettwäsche', 'handtücher', 'laundry', 'wash', 'iron']
+  },
+  {
+    icon: '🚿',
+    name: 'Bad',
+    color: '#29b6f6',
+    keywords: ['bad', 'badezimmer', 'toilette', 'wc', 'klo', 'dusche', 'badewanne', 'waschbecken', 'spiegel', 'klobürste', 'bathroom', 'toilet', 'shower']
+  },
+  {
+    icon: '🛒',
+    name: 'Einkauf',
+    color: '#66bb6a',
+    keywords: ['einkauf', 'einkaufen', 'besorgen', 'supermarkt', 'drogerie', 'getränke', 'markt', 'grocery', 'shopping', 'buy']
+  },
+  {
+    icon: '🌱',
+    name: 'Pflanzen & Garten',
+    color: '#9ccc65',
+    keywords: ['pflanze', 'pflanzen', 'blumen', 'gießen', 'garten', 'rasen', 'mähen', 'unkraut', 'balkon', 'beet', 'plants', 'garden', 'water']
+  },
+  {
+    icon: '🐾',
+    name: 'Haustiere',
+    color: '#ff7043',
+    keywords: ['hund', 'katze', 'füttern', 'katzenklo', 'gassi', 'fressnapf', 'futter', 'tier', 'haustier', 'pet', 'dog', 'cat', 'feed']
+  },
+  {
+    icon: '📦',
+    name: 'Aufräumen',
+    color: '#78909c',
+    keywords: ['aufräumen', 'ordnung', 'ausmisten', 'schreibtisch', 'zimmer', 'keller', 'dachboden', 'schrank', 'tidy', 'clean up', 'organize']
+  },
+  {
+    icon: '🔧',
+    name: 'Reparatur',
+    color: '#ec407a',
+    keywords: ['reparieren', 'reparatur', 'fahrrad', 'auto', 'werkstatt', 'glühbirne', 'filter', 'batterie', 'schrauben', 'repair', 'fix', 'bike', 'car']
+  },
+  {
+    icon: '📚',
+    name: 'Lernen & Schule',
+    color: '#5c6bc0',
+    keywords: ['hausaufgabe', 'lernen', 'schule', 'üben', 'lesen', 'vokabeln', 'study', 'homework', 'school', 'read']
+  },
+  {
+    icon: '💪',
+    name: 'Fitness & Sport',
+    color: '#ba68c8',
+    keywords: ['sport', 'training', 'workout', 'laufen', 'gym', 'fitness', 'yoga', 'exercise']
+  }
+];
+
+
 class HouseholdScoreboardCard extends HTMLElement {
   constructor() {
     super();
@@ -44,6 +120,12 @@ class HouseholdScoreboardCard extends HTMLElement {
     this._optimisticDeltas = {};
     this._todoItems = [];
     this._isResettingTodos = false;
+    this._audioCtx = null;
+    this._soundMuted = false;
+    try {
+      this._soundMuted = localStorage.getItem('hsc_sound_muted') === 'true';
+    } catch (e) {}
+    this._rouletteSpinning = false;
   }
 
   static getConfigElement() {
@@ -85,6 +167,10 @@ class HouseholdScoreboardCard extends HTMLElement {
       show_todo: !!todo,
       todo_title: '📋 Aufgaben & Quests',
       unit: 'XP',
+      show_streaks: true,
+      show_task_icons: true,
+      show_roulette: true,
+      enable_sound: true,
       players: defaultPlayers
     };
   }
@@ -109,6 +195,10 @@ class HouseholdScoreboardCard extends HTMLElement {
       todo_entity: '',
       show_todo: true,
       todo_title: '📋 Aufgaben & Quests',
+      show_streaks: true,
+      show_task_icons: true,
+      show_roulette: true,
+      enable_sound: true,
       levels: DEFAULT_LEVELS,
       players: [],
       ...config
@@ -149,6 +239,296 @@ class HouseholdScoreboardCard extends HTMLElement {
       }
       this._updateData();
     }
+  }
+
+  _playSound(type) {
+    if (this._config.enable_sound === false || this._soundMuted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this._audioCtx) {
+        this._audioCtx = new AudioCtx();
+      }
+      if (this._audioCtx.state === 'suspended') {
+        this._audioCtx.resume();
+      }
+      const ctx = this._audioCtx;
+      const now = ctx.currentTime;
+
+      if (type === 'coin') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.frequency.setValueAtTime(987.77, now); // B5
+        osc.frequency.setValueAtTime(1318.51, now + 0.08); // E6
+
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.setValueAtTime(0.12, now + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+        osc.start(now);
+        osc.stop(now + 0.35);
+      } else if (type === 'fanfare') {
+        const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          const start = now + idx * 0.08;
+          const dur = idx === notes.length - 1 ? 0.4 : 0.12;
+
+          osc.frequency.setValueAtTime(freq, start);
+          gain.gain.setValueAtTime(0.18, start);
+          gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
+
+          osc.start(start);
+          osc.stop(start + dur);
+        });
+      } else if (type === 'dice') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.frequency.setValueAtTime(450 + Math.random() * 250, now);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+        osc.start(now);
+        osc.stop(now + 0.05);
+      } else if (type === 'win') {
+        [587.33, 739.99, 880.00, 1174.66].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          const start = now + idx * 0.05;
+          osc.frequency.setValueAtTime(freq, start);
+          gain.gain.setValueAtTime(0.15, start);
+          gain.gain.exponentialRampToValueAtTime(0.001, start + 0.45);
+
+          osc.start(start);
+          osc.stop(start + 0.45);
+        });
+      }
+    } catch (e) {
+      console.warn('HouseholdScoreboardCard: audio error', e);
+    }
+  }
+
+  _toggleSound() {
+    this._soundMuted = !this._soundMuted;
+    try {
+      localStorage.setItem('hsc_sound_muted', this._soundMuted ? 'true' : 'false');
+    } catch (e) {}
+    const icon = this.shadowRoot.getElementById('sound-icon');
+    if (icon) icon.textContent = this._soundMuted ? '🔇' : '🔊';
+    if (!this._soundMuted) this._playSound('coin');
+  }
+
+  _formatDate(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  _getPlayerStreak(player) {
+    const key = `hsc_streak_${player.entity || player.name}`;
+    let data = { count: 0, lastDate: null, best: 0 };
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) data = JSON.parse(stored);
+    } catch (e) {}
+
+    // Support optional Home Assistant entity for streak
+    if (player.streak_entity && this._hass && this._hass.states[player.streak_entity]) {
+      const val = parseInt(this._hass.states[player.streak_entity].state, 10);
+      if (!isNaN(val)) data.count = val;
+    }
+
+    if (!data.lastDate) return { count: data.count || 0, best: data.best || 0, activeToday: false };
+
+    const now = new Date();
+    const todayStr = this._formatDate(now);
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = this._formatDate(yesterday);
+
+    if (data.lastDate === todayStr) {
+      return { count: data.count, best: data.best || data.count, activeToday: true };
+    } else if (data.lastDate === yesterdayStr) {
+      return { count: data.count, best: data.best || data.count, activeToday: false };
+    } else {
+      return { count: 0, best: data.best || 0, activeToday: false };
+    }
+  }
+
+  _recordPlayerStreak(player) {
+    const key = `hsc_streak_${player.entity || player.name}`;
+    let data = { count: 0, lastDate: null, best: 0 };
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) data = JSON.parse(stored);
+    } catch (e) {}
+
+    const now = new Date();
+    const todayStr = this._formatDate(now);
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = this._formatDate(yesterday);
+
+    let newCount = 1;
+    if (data.lastDate === todayStr) {
+      newCount = data.count || 1;
+    } else if (data.lastDate === yesterdayStr) {
+      newCount = (data.count || 0) + 1;
+    } else {
+      newCount = 1;
+    }
+
+    const best = Math.max(newCount, data.best || 0);
+    const updated = { count: newCount, lastDate: todayStr, best };
+    try {
+      localStorage.setItem(key, JSON.stringify(updated));
+    } catch (e) {}
+
+    if (player.streak_entity && this._hass) {
+      const domain = player.streak_entity.split('.')[0];
+      if (domain === 'counter') {
+        this._callService('counter', 'set_value', { entity_id: player.streak_entity, value: newCount });
+      } else if (domain === 'input_number') {
+        this._callService('input_number', 'set_value', { entity_id: player.streak_entity, value: newCount });
+      }
+    }
+
+    return updated;
+  }
+
+  _openRouletteModal(specificItem = null) {
+    const players = this._getSortedPlayers();
+    if (players.length === 0) {
+      alert('Bitte lege zuerst mindestens einen Spieler in den Card-Einstellungen an!');
+      return;
+    }
+
+    const openItems = (this._todoItems || []).filter(item => item.status === 'needs_action');
+    let targetItem = specificItem;
+    if (!targetItem) {
+      if (openItems.length === 0) {
+        alert('🎉 Alle Aufgaben sind bereits erledigt! Keine Aufgaben zum Auslosen vorhanden.');
+        return;
+      }
+      targetItem = openItems[Math.floor(Math.random() * openItems.length)];
+    }
+
+    const meta = this._parseTodoMetadata(targetItem);
+    const modal = this.shadowRoot.getElementById('roulette-modal');
+    const taskTitle = this.shadowRoot.getElementById('roulette-task-title');
+    const xpBadge = this.shadowRoot.getElementById('roulette-xp-badge');
+    const stage = this.shadowRoot.getElementById('roulette-stage');
+    const winnerWrap = this.shadowRoot.getElementById('roulette-winner-wrap');
+    if (!modal) return;
+
+    const unit = this._config.unit || 'XP';
+    taskTitle.textContent = targetItem.summary || 'Aufgabe';
+    xpBadge.innerHTML = `⭐ <b>+${meta.totalXp} ${unit}</b> ${meta.icon ? `<span style="margin-left:6px;">${meta.icon}</span>` : ''}`;
+
+    stage.style.display = 'block';
+    winnerWrap.style.display = 'none';
+    modal.style.display = 'flex';
+
+    this._spinRoulette(targetItem, meta, players);
+  }
+
+  _closeRouletteModal() {
+    const modal = this.shadowRoot.getElementById('roulette-modal');
+    if (modal) modal.style.display = 'none';
+    this._rouletteSpinning = false;
+  }
+
+  _spinRoulette(targetItem, meta, players) {
+    if (this._rouletteSpinning) return;
+    this._rouletteSpinning = true;
+
+    const stage = this.shadowRoot.getElementById('roulette-stage');
+    const spinner = this.shadowRoot.getElementById('roulette-slot-spinner');
+    const winnerWrap = this.shadowRoot.getElementById('roulette-winner-wrap');
+    const winnerName = this.shadowRoot.getElementById('roulette-winner-name');
+    const winnerSub = this.shadowRoot.getElementById('roulette-winner-sub');
+    const acceptBtn = this.shadowRoot.getElementById('roulette-accept-btn');
+    const spinAgainBtn = this.shadowRoot.getElementById('roulette-spin-again-btn');
+
+    stage.style.display = 'block';
+    winnerWrap.style.display = 'none';
+
+    // Weighted fair-share selection (lower points = higher chance)
+    const maxPts = Math.max(...players.map(p => p.pts), 0);
+    const weights = players.map(p => Math.max(1, maxPts - p.pts + 6));
+    const totalWeight = weights.reduce((acc, w) => acc + w, 0);
+    let randWeight = Math.random() * totalWeight;
+    let chosenPlayer = players[0];
+    for (let i = 0; i < players.length; i++) {
+      if (randWeight < weights[i]) {
+        chosenPlayer = players[i];
+        break;
+      }
+      randWeight -= weights[i];
+    }
+
+    const intervals = [40, 40, 50, 50, 60, 70, 80, 100, 130, 160, 200, 260, 340, 440];
+    let step = 0;
+    let playerIdx = 0;
+
+    const renderCandidate = (p) => {
+      const avatarHtml = p.avatar
+        ? `<img class="roulette-avatar" style="border-color:${p.color}" src="${p.avatar}" alt="${p.name}" />`
+        : `<div class="roulette-avatar" style="background:${p.color}; border-color:${p.color}">${p.initials}</div>`;
+      spinner.innerHTML = `
+        ${avatarHtml}
+        <div class="roulette-candidate-name">${p.name}</div>
+        <div class="roulette-candidate-pts">${p.pts} ${this._config.unit || 'XP'}</div>
+      `;
+    };
+
+    const nextTick = () => {
+      if (step < intervals.length) {
+        playerIdx = (playerIdx + 1) % players.length;
+        renderCandidate(players[playerIdx]);
+        this._playSound('dice');
+        setTimeout(nextTick, intervals[step]);
+        step++;
+      } else {
+        renderCandidate(chosenPlayer);
+        this._playSound('win');
+        this._fireConfetti();
+        this._rouletteSpinning = false;
+
+        setTimeout(() => {
+          stage.style.display = 'none';
+          winnerWrap.style.display = 'block';
+          winnerName.innerHTML = `🎉 <b>${chosenPlayer.name}</b> ist dran!`;
+          winnerSub.textContent = `Aufgabe: "${targetItem.summary || 'Aufgabe'}" (+${meta.totalXp} ${this._config.unit || 'XP'})`;
+
+          acceptBtn.onclick = () => {
+            this._closeRouletteModal();
+            this._completeTask(targetItem, chosenPlayer, meta);
+          };
+
+          spinAgainBtn.onclick = () => {
+            this._spinRoulette(targetItem, meta, players);
+          };
+        }, 500);
+      }
+    };
+
+    nextTick();
   }
 
   _getLevelInfo(pts) {
@@ -258,6 +638,10 @@ class HouseholdScoreboardCard extends HTMLElement {
 
   _adjustScore(player, amount) {
     this._forwardHaptic(amount > 0 ? 'success' : 'warning');
+    if (amount > 0) {
+      this._recordPlayerStreak(player);
+      this._playSound('coin');
+    }
     
     // Optimistic UI update
     this._optimisticDeltas[player.entity] = (this._optimisticDeltas[player.entity] || 0) + amount;
@@ -390,10 +774,39 @@ class HouseholdScoreboardCard extends HTMLElement {
     const extraXp = overdueDays * bonusPerDay;
     const totalXp = baseXp + extraXp;
 
+    // 7. Category & Icon Detection
+    let icon = '📋';
+    let category = 'Aufgabe';
+    let categoryColor = '#ffd700';
+
+    const iconTag = desc.match(/(?:\[|\b)icon\s*[:=]\s*(\S+)(?:\]|\b)/i) || (item.summary || '').match(/(?:\[|\b)icon\s*[:=]\s*(\S+)(?:\]|\b)/i);
+    const catTag = desc.match(/(?:\[|\b)(?:cat|kategorie|category)\s*[:=]\s*(\w+)(?:\]|\b)/i);
+
+    if (iconTag) {
+      icon = iconTag[1].replace(/\]/g, '');
+    } else if (catTag) {
+      const found = TASK_CATEGORY_MAP.find(c => c.name.toLowerCase().includes(catTag[1].toLowerCase()));
+      if (found) {
+        icon = found.icon;
+        category = found.name;
+        categoryColor = found.color;
+      }
+    } else {
+      const textToSearch = `${item.summary || ''} ${desc}`.toLowerCase();
+      for (const c of TASK_CATEGORY_MAP) {
+        if (c.keywords.some(kw => textToSearch.includes(kw))) {
+          icon = c.icon;
+          category = c.name;
+          categoryColor = c.color;
+          break;
+        }
+      }
+    }
+
     // Clean description without metadata brackets for neat UI
     const cleanDesc = desc
-      .replace(/\[\s*(?:xp|punkte|points|reset|recur|repeat|intervall|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig)\s*[:=][^\]]+\]/gi, '')
-      .replace(/(?:^|\n)\s*(?:xp|punkte|points|reset|recur|repeat|intervall|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig)\s*[:=].*$/gim, '')
+      .replace(/\[\s*(?:xp|punkte|points|reset|recur|repeat|intervall|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig|icon|cat|kategorie|category)\s*[:=][^\]]+\]/gi, '')
+      .replace(/(?:^|\n)\s*(?:xp|punkte|points|reset|recur|repeat|intervall|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig|icon|cat|kategorie|category)\s*[:=].*$/gim, '')
       .trim();
 
     return {
@@ -405,7 +818,10 @@ class HouseholdScoreboardCard extends HTMLElement {
       overdueDays,
       extraXp,
       totalXp,
-      cleanDesc
+      cleanDesc,
+      icon,
+      category,
+      categoryColor
     };
   }
 
@@ -512,15 +928,26 @@ class HouseholdScoreboardCard extends HTMLElement {
         badgesHtml += `<span class="todo-pill badge-due">📅 ${meta.effectiveDueDate}</span>`;
       }
 
+      const showIcons = this._config.show_task_icons !== false;
+      const showRoulette = this._config.show_roulette !== false;
+
       row.innerHTML = `
         <button class="todo-check-btn" title="Aufgabe erledigen">
           <span class="check-icon">✓</span>
         </button>
+        ${showIcons ? `
+          <div class="todo-cat-badge" style="border-color:${meta.categoryColor};" title="Kategorie: ${meta.category}">
+            ${meta.icon}
+          </div>
+        ` : ''}
         <div class="todo-info">
           <div class="todo-summary">${item.summary || 'Unbenannte Aufgabe'}</div>
           ${meta.cleanDesc ? `<div class="todo-desc">${meta.cleanDesc}</div>` : ''}
           <div class="todo-badges">${badgesHtml}</div>
         </div>
+        ${showRoulette ? `
+          <button class="todo-roulette-mini-btn" title="Auslosen, wer diese Aufgabe macht">🎲</button>
+        ` : ''}
       `;
 
       const checkBtn = row.querySelector('.todo-check-btn');
@@ -530,6 +957,14 @@ class HouseholdScoreboardCard extends HTMLElement {
       };
       checkBtn.addEventListener('click', handleComplete);
       row.addEventListener('click', handleComplete);
+
+      const miniRoulette = row.querySelector('.todo-roulette-mini-btn');
+      if (miniRoulette) {
+        miniRoulette.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._openRouletteModal(item);
+        });
+      }
 
       todoSection.appendChild(row);
     });
@@ -596,6 +1031,12 @@ class HouseholdScoreboardCard extends HTMLElement {
   async _completeTask(item, player, meta) {
     this._forwardHaptic('success');
     this._fireConfetti();
+    this._recordPlayerStreak(player);
+    if (meta.extraXp > 0) {
+      this._playSound('fanfare');
+    } else {
+      this._playSound('coin');
+    }
 
     // 1. Award XP to player
     this._adjustScore(player, meta.totalXp);
@@ -1397,10 +1838,265 @@ class HouseholdScoreboardCard extends HTMLElement {
           border-color: rgba(255, 82, 82, 0.3);
           color: #ff5252;
         }
+
+        /* SOUND TOGGLE */
+        .sound-toggle-btn {
+          position: absolute;
+          right: 0;
+          top: -2px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 10px;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 14px;
+          color: rgba(255, 255, 255, 0.8);
+          transition: all 0.2s ease;
+        }
+        .sound-toggle-btn:hover {
+          background: rgba(255, 215, 0, 0.15);
+          border-color: #ffd700;
+          transform: scale(1.08);
+        }
+
+        /* STREAKS */
+        .podium-streak {
+          margin-top: 5px;
+          font-size: 11px;
+          font-weight: 700;
+          color: #ff9800;
+          background: rgba(255, 152, 0, 0.12);
+          border: 1px solid rgba(255, 152, 0, 0.25);
+          padding: 2px 8px;
+          border-radius: 10px;
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+        }
+        .podium-streak.active {
+          color: #ff5722;
+          background: rgba(255, 87, 34, 0.18);
+          border-color: #ff5722;
+          box-shadow: 0 0 10px rgba(255, 87, 34, 0.35);
+          animation: streak-glow 2s infinite ease-in-out;
+        }
+        .streak-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 2px;
+          font-size: 11px;
+          font-weight: 800;
+          color: #ff9800;
+          background: rgba(255, 152, 0, 0.12);
+          border: 1px solid rgba(255, 152, 0, 0.25);
+          padding: 1px 6px;
+          border-radius: 8px;
+          margin-left: 6px;
+          vertical-align: middle;
+        }
+        .streak-badge.active {
+          color: #ff5722;
+          border-color: #ff5722;
+          background: rgba(255, 87, 34, 0.2);
+          box-shadow: 0 0 8px rgba(255, 87, 34, 0.35);
+          animation: streak-glow 2s infinite ease-in-out;
+        }
+        @keyframes streak-glow {
+          0%, 100% { transform: scale(1); filter: drop-shadow(0 0 2px rgba(255, 87, 34, 0.4)); }
+          50% { transform: scale(1.05); filter: drop-shadow(0 0 8px rgba(255, 87, 34, 0.8)); }
+        }
+
+        /* TASK CATEGORY BADGES & ROULETTE BUTTONS */
+        .todo-header-right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .todo-roulette-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          background: linear-gradient(135deg, rgba(255, 215, 0, 0.15), rgba(255, 152, 0, 0.12));
+          border: 1px solid rgba(255, 215, 0, 0.35);
+          color: #ffd700;
+          padding: 4px 10px;
+          border-radius: 10px;
+          font-size: 11.5px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .todo-roulette-btn:hover {
+          background: linear-gradient(135deg, #ffd700, #ff9800);
+          color: #121212;
+          box-shadow: 0 4px 14px rgba(255, 215, 0, 0.35);
+          transform: translateY(-1px);
+        }
+        .todo-roulette-mini-btn {
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 8px;
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 14px;
+          margin-left: 8px;
+          flex-shrink: 0;
+          transition: all 0.2s ease;
+          align-self: center;
+        }
+        .todo-roulette-mini-btn:hover {
+          background: rgba(255, 215, 0, 0.2);
+          border-color: #ffd700;
+          transform: scale(1.15) rotate(15deg);
+        }
+        .todo-cat-badge {
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1.5px solid rgba(255, 215, 0, 0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 17px;
+          flex-shrink: 0;
+          margin-right: 4px;
+        }
+
+        /* ROULETTE MODAL */
+        .roulette-box {
+          max-width: 340px;
+        }
+        .roulette-stage {
+          margin: 16px 0;
+        }
+        .roulette-slot-window {
+          background: rgba(0, 0, 0, 0.35);
+          border: 2px solid #ffd700;
+          border-radius: 16px;
+          padding: 16px 12px;
+          box-shadow: inset 0 0 16px rgba(0,0,0,0.6), 0 0 20px rgba(255, 215, 0, 0.2);
+          overflow: hidden;
+          min-height: 100px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .roulette-slot-spinner {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+          animation: slot-bounce 0.15s infinite alternate ease-in-out;
+        }
+        @keyframes slot-bounce {
+          from { transform: translateY(-2px); }
+          to { transform: translateY(2px); }
+        }
+        .roulette-avatar {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          border: 3px solid #ffd700;
+          object-fit: cover;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 20px;
+          font-weight: 800;
+          color: white;
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+        }
+        .roulette-candidate-name {
+          font-size: 16px;
+          font-weight: 800;
+          color: #fff;
+        }
+        .roulette-candidate-pts {
+          font-size: 12px;
+          color: #ffd700;
+          font-weight: 600;
+        }
+        .roulette-fair-hint {
+          font-size: 10.5px;
+          opacity: 0.65;
+          margin-top: 8px;
+          text-align: center;
+        }
+        .roulette-winner-wrap {
+          margin: 16px 0;
+          animation: modal-fade-in 0.3s ease;
+        }
+        .roulette-winner-label {
+          font-size: 12px;
+          opacity: 0.75;
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+          font-weight: 700;
+          margin-bottom: 4px;
+        }
+        .roulette-winner-name {
+          font-size: 20px;
+          color: #ffd700;
+          font-weight: 800;
+          margin-bottom: 4px;
+        }
+        .roulette-winner-sub {
+          font-size: 12px;
+          opacity: 0.8;
+          margin-bottom: 16px;
+        }
+        .roulette-action-buttons {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .roulette-accept-btn {
+          width: 100%;
+          background: linear-gradient(135deg, #ffd700, #ff9800);
+          color: #121212;
+          border: none;
+          border-radius: 12px;
+          padding: 10px 0;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          box-shadow: 0 4px 14px rgba(255, 215, 0, 0.3);
+        }
+        .roulette-accept-btn:hover {
+          filter: brightness(1.1);
+          transform: translateY(-1px);
+        }
+        .roulette-spin-again-btn {
+          width: 100%;
+          background: rgba(255, 255, 255, 0.07);
+          color: #fff;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 12px;
+          padding: 8px 0;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .roulette-spin-again-btn:hover {
+          background: rgba(255, 255, 255, 0.12);
+        }
       </style>
 
       <ha-card>
-        <div class="header">
+        <div class="header" style="position: relative;">
+          <button id="sound-btn" class="sound-toggle-btn" title="Soundeffekte ein-/ausschalten">
+            <span id="sound-icon">🔊</span>
+          </button>
           <div class="title" id="card-title"></div>
           <div class="subtitle" id="card-subtitle"></div>
         </div>
@@ -1411,7 +2107,12 @@ class HouseholdScoreboardCard extends HTMLElement {
         <div id="todo-wrapper">
           <div class="todo-header">
             <div class="todo-title">📋 <span id="todo-title-text">Aufgaben & Quests</span></div>
-            <span id="todo-counter-badge" class="todo-counter-badge"></span>
+            <div class="todo-header-right">
+              <button id="roulette-header-btn" class="todo-roulette-btn" title="Aufgaben-Roulette: Wer ist dran?">
+                <span>🎲</span> Wer ist dran?
+              </button>
+              <span id="todo-counter-badge" class="todo-counter-badge"></span>
+            </div>
           </div>
           <div id="todo-section" class="todo-list"></div>
         </div>
@@ -1428,6 +2129,34 @@ class HouseholdScoreboardCard extends HTMLElement {
         </div>
         <canvas id="confetti-canvas" class="confetti-canvas"></canvas>
 
+        <div id="roulette-modal" class="modal-backdrop" style="display: none;">
+          <div class="modal-box roulette-box">
+            <div class="modal-header">
+              <div class="modal-title">🎲 Aufgaben-Roulette</div>
+              <div id="roulette-task-title" class="modal-task-title"></div>
+              <div id="roulette-xp-badge" class="modal-xp-badge"></div>
+            </div>
+
+            <div id="roulette-stage" class="roulette-stage">
+              <div class="roulette-slot-window">
+                <div id="roulette-slot-spinner" class="roulette-slot-spinner"></div>
+              </div>
+              <div class="roulette-fair-hint">⚖️ Faire Auslosung (höhere Chance für Spieler mit weniger XP)</div>
+            </div>
+
+            <div id="roulette-winner-wrap" class="roulette-winner-wrap" style="display: none;">
+              <div class="roulette-winner-label">Das Los hat entschieden:</div>
+              <div id="roulette-winner-name" class="roulette-winner-name"></div>
+              <div id="roulette-winner-sub" class="roulette-winner-sub"></div>
+              <div class="roulette-action-buttons">
+                <button id="roulette-accept-btn" class="roulette-accept-btn">Aufgabe jetzt erledigen ⭐</button>
+                <button id="roulette-spin-again-btn" class="roulette-spin-again-btn">Erneut auslosen 🔄</button>
+              </div>
+            </div>
+
+            <button id="roulette-cancel-btn" class="modal-cancel-btn" style="margin-top: 10px;">Schließen</button>
+          </div>
+        </div>
         <div id="player-modal" class="modal-backdrop" style="display: none;">
           <div class="modal-box">
             <div class="modal-header">
@@ -1443,6 +2172,19 @@ class HouseholdScoreboardCard extends HTMLElement {
     `;
 
     this.shadowRoot.getElementById('reset-btn').addEventListener('click', () => this._resetAll());
+    const soundBtn = this.shadowRoot.getElementById('sound-btn');
+    if (soundBtn) soundBtn.addEventListener('click', () => this._toggleSound());
+
+    const rouletteHeaderBtn = this.shadowRoot.getElementById('roulette-header-btn');
+    if (rouletteHeaderBtn) rouletteHeaderBtn.addEventListener('click', () => this._openRouletteModal());
+
+    const rouletteCancel = this.shadowRoot.getElementById('roulette-cancel-btn');
+    if (rouletteCancel) rouletteCancel.addEventListener('click', () => this._closeRouletteModal());
+    const rouletteModal = this.shadowRoot.getElementById('roulette-modal');
+    if (rouletteModal) rouletteModal.addEventListener('click', (e) => {
+      if (e.target === rouletteModal) this._closeRouletteModal();
+    });
+
     const modalCancel = this.shadowRoot.getElementById('modal-cancel-btn');
     if (modalCancel) modalCancel.addEventListener('click', () => this._closePlayerModal());
     const modal = this.shadowRoot.getElementById('player-modal');
@@ -1465,6 +2207,20 @@ class HouseholdScoreboardCard extends HTMLElement {
     const resetLabel = this.shadowRoot.getElementById('reset-label');
 
     if (!titleEl || !this._config) return;
+
+    // Sound toggle state & button visibility
+    const soundBtn = this.shadowRoot.getElementById('sound-btn');
+    const soundIcon = this.shadowRoot.getElementById('sound-icon');
+    if (soundBtn && soundIcon) {
+      soundBtn.style.display = this._config.enable_sound !== false ? 'flex' : 'none';
+      soundIcon.textContent = this._soundMuted ? '🔇' : '🔊';
+    }
+
+    // Roulette button visibility
+    const rouletteHeaderBtn = this.shadowRoot.getElementById('roulette-header-btn');
+    if (rouletteHeaderBtn) {
+      rouletteHeaderBtn.style.display = this._config.show_roulette !== false ? 'inline-flex' : 'none';
+    }
 
     // Header
     titleEl.textContent = this._config.title || '🏆 Haushalts-Rangliste';
@@ -1511,6 +2267,13 @@ class HouseholdScoreboardCard extends HTMLElement {
           : `<div class="avatar-fallback" style="background:${p.color}">${p.initials}</div>`;
 
         const crownHtml = rank === 1 ? `<div class="crown-badge">👑</div>` : '';
+        const streak = this._getPlayerStreak(p);
+        const showStreaks = this._config.show_streaks !== false;
+        const streakHtml = showStreaks && streak.count > 0 ? `
+          <div class="podium-streak ${streak.activeToday ? 'active' : ''}" title="${streak.count} Tag(e) in Folge aktiv!">
+            🔥 ${streak.count} ${streak.count === 1 ? 'Tag' : 'Tage'}
+          </div>
+        ` : '';
 
         podiumHtml += `
           <div class="${slotClass}">
@@ -1522,6 +2285,7 @@ class HouseholdScoreboardCard extends HTMLElement {
             <div class="podium-name">${p.name}</div>
             <div class="podium-score">${p.pts} ${unit}</div>
             <div class="podium-level">${p.level.badge} ${p.level.title}</div>
+            ${streakHtml}
           </div>
         `;
       });
@@ -1544,6 +2308,11 @@ class HouseholdScoreboardCard extends HTMLElement {
           : `<div class="rank-row-avatar" style="background:${p.color}">${p.initials}</div>`;
 
         const nextHint = p.level.nextPts > 0 ? `noch ${p.level.nextPts} ${unit} bis ${p.level.nextTitle}` : 'Maximaler Rang!';
+        const streak = this._getPlayerStreak(p);
+        const showStreaks = this._config.show_streaks !== false;
+        const streakBadgeHtml = showStreaks && streak.count > 0 ? `
+          <span class="streak-badge ${streak.activeToday ? 'active' : ''}" title="${streak.count} Tag(e) in Folge aktiv!">🔥 ${streak.count}</span>
+        ` : '';
 
         ranksHtml += `
           <div class="rank-row ${isLeader ? 'leader' : ''}">
@@ -1553,6 +2322,7 @@ class HouseholdScoreboardCard extends HTMLElement {
               <div class="rank-row-top">
                 <span class="rank-row-name">
                   ${p.name}
+                  ${streakBadgeHtml}
                   <span class="rank-row-badge">(${p.level.badge} ${p.level.title})</span>
                 </span>
                 <span class="rank-row-pts">${p.pts} ${unit}</span>
@@ -2227,6 +2997,12 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
               </div>
 
               <div class="form-group">
+                <label class="form-label">Streak-Zähler (optional)</label>
+                <input type="text" list="hsc-counter-list" class="hsc-input p-input" data-idx="${idx}" data-prop="streak_entity" value="${p.streak_entity || ''}" placeholder="counter.streak_alex (optional)" />
+                <div class="field-hint">Zähler für Serien. Bleibt dieses Feld leer, speichert die Karte Serien automatisch im Browser!</div>
+              </div>
+
+              <div class="form-group">
                 <label class="form-label">Spieler-Farbe</label>
                 <div class="color-row">
                   <input type="color" class="hsc-color-picker" data-idx="${idx}" value="${p.color || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]}" />
@@ -2290,6 +3066,28 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
             <input type="text" class="hsc-input" id="cfg-todo-title" value="${this._config.todo_title || '📋 Aufgaben & Quests'}" placeholder="📋 Aufgaben & Quests" />
           </div>
 
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">🎲 "Wer ist dran?" (Aufgaben-Roulette)</div>
+              <div class="toggle-desc">Zeigt einen Würfel-Button im Aufgabenbereich und an Aufgaben zum fairen Auslosen des nächsten Erledigers.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-roulette" ${this._config.show_roulette !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">🏷️ Automatische Aufgaben-Icons</div>
+              <div class="toggle-desc">Erkennt Begriffe wie Müll 🗑️, Spülmaschine 🍽️, Wäsche 🧺 und versieht Aufgaben mit Icons.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-task-icons" ${this._config.show_task_icons !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
           <div style="background: rgba(68, 138, 255, 0.08); border: 1px solid rgba(68, 138, 255, 0.25); border-radius: 12px; padding: 12px 14px; margin-top: 8px;">
             <div style="font-weight: 700; font-size: 13px; color: #448aff; margin-bottom: 6px;">💡 Smarte Syntax in der Aufgaben-Beschreibung:</div>
             <div style="font-size: 12px; line-height: 1.6; opacity: 0.85;">
@@ -2322,6 +3120,28 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
             </div>
             <label class="switch">
               <input type="checkbox" id="cfg-show-ranks" ${this._config.show_ranks !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">🔥 Streak-System anzeigen</div>
+              <div class="toggle-desc">Zeigt Flammen-Badges für aufeinanderfolgende Tage mit erledigten Aufgaben.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-streaks" ${this._config.show_streaks !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">🔊 Retro-Soundeffekte (Web Audio)</div>
+              <div class="toggle-desc">Spielt 8-Bit Münz-Sounds und Fanfaren beim Erledigen von Aufgaben und Verteilen von Punkten.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-enable-sound" ${this._config.enable_sound !== false ? 'checked' : ''} />
               <span class="slider"></span>
             </label>
           </div>
@@ -2507,6 +3327,26 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const todoTitleInput = this.shadowRoot.getElementById('cfg-todo-title');
     if (todoTitleInput) {
       todoTitleInput.addEventListener('change', (ev) => this._updateConfig({ todo_title: ev.target.value }));
+    }
+
+    const rouletteToggle = this.shadowRoot.getElementById('cfg-show-roulette');
+    if (rouletteToggle) {
+      rouletteToggle.addEventListener('change', (ev) => this._updateConfig({ show_roulette: ev.target.checked }));
+    }
+
+    const iconsToggle = this.shadowRoot.getElementById('cfg-show-task-icons');
+    if (iconsToggle) {
+      iconsToggle.addEventListener('change', (ev) => this._updateConfig({ show_task_icons: ev.target.checked }));
+    }
+
+    const streaksToggle = this.shadowRoot.getElementById('cfg-show-streaks');
+    if (streaksToggle) {
+      streaksToggle.addEventListener('change', (ev) => this._updateConfig({ show_streaks: ev.target.checked }));
+    }
+
+    const soundToggle = this.shadowRoot.getElementById('cfg-enable-sound');
+    if (soundToggle) {
+      soundToggle.addEventListener('change', (ev) => this._updateConfig({ enable_sound: ev.target.checked }));
     }
 
     const actionsToggle = this.shadowRoot.getElementById('cfg-show-actions');

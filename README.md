@@ -22,6 +22,10 @@ Motiviere die ganze Familie oder WG bei täglichen Aufgaben: Wer eine Aufgabe er
   * 🐝 **Fleißig** (15–29 XP)
   * ⚡ **Profi** (30–49 XP)
   * 👑 **Legende** (ab 50 XP)
+* 🔥 **Streak-System (Tages-Serien):** Belohnt regelmäßigen Fleiß mit Flammen-Badges (`🔥 5`) für aufeinanderfolgende Tage mit erledigten Aufgaben – wahlweise mit automatischem Browser-Speicher oder HA-Zähler-Entity.
+* 🎲 **"Wer ist dran?" (Aufgaben-Roulette):** Spielerische Zufallsauswahl für Aufgaben mit animierter Slot-Machine und fairer Gewichtung (Spieler mit weniger XP haben höhere Chancen).
+* 🏷️ **Smarte Aufgaben-Icons & Kategorien:** Automatische Icon-Erkennung für Küche 🍽️, Müll 🗑️, Saugen/Boden 🧹, Wäsche 🧺, Bad 🚿, Einkauf 🛒, Pflanzen 🌱, Haustiere 🐾 und mehr.
+* 🔊 **Retro-Soundeffekte:** Integrierter 8-Bit-Synthesizer via Web Audio API (Münzsound bei Punkten, Fanfare bei Quests, Roulette-Klicks) – inklusive Stummschalter 🔊/🔇 direkt auf der Karte.
 * 🎮 **Integrierte Schnell-Aktionsbuttons (+1 XP):** Direkt auf der Karte mit einem Klick Punkte gutschreiben – inklusive haptischem Feedback und latenzfreier Live-Aktualisierung.
 * 📋 **To-Do-Listen & Quests-Integration:** Integriere beliebige Home Assistant To-Do-Listen (`todo.*`). Aufgaben können direkt auf der Karte abgehakt werden.
 * 🔥 **Dynamisches Kopfgeld (Bounty-System):** Bleibt eine Aufgabe liegen, steigt die Belohnung automatisch mit jedem überfälligen Tag an (`bonus: +10`).
@@ -120,12 +124,16 @@ players:
 | `unit` | `string` | `XP` | Punkte-Einheit (z. B. `XP`, `Punkte`, `⭐`) |
 | `show_podium` | `boolean` | `true` | Siegertreppchen (Top 3) anzeigen |
 | `show_ranks` | `boolean` | `true` | Vollständige Rangliste mit Fortschrittsbalken |
+| `show_streaks` | `boolean` | `true` | 🔥 Flammen-Badges für tägliche Serien anzeigen |
 | `show_actions` | `boolean` | `true` | Schnell-Buttons (+1 XP) je Spieler anzeigen |
 | `action_step` | `number` | `1` | Wieviele Punkte pro Klick vergeben werden |
 | `allow_decrement` | `boolean` | `true` | Zeigt kleinen Minus-Button zur Korrektur |
 | `todo_entity` | `string` | `''` | Optional: To-Do-Liste für Aufgaben (z. B. `todo.haushalt`) |
 | `show_todo` | `boolean` | `true` | Aufgabenliste auf der Karte anzeigen |
 | `todo_title` | `string` | `📋 Aufgaben & Quests` | Überschrift für den Aufgaben-Bereich |
+| `show_task_icons` | `boolean` | `true` | 🏷️ Automatische Kategorie-Icons für Aufgaben anzeigen |
+| `show_roulette` | `boolean` | `true` | 🎲 "Wer ist dran?"-Roulette-Button anzeigen |
+| `enable_sound` | `boolean` | `true` | 🔊 Retro-Soundeffekte (Web Audio) aktivieren |
 | `show_reset` | `boolean` | `false` | Button zum Zurücksetzen aller Zähler |
 | `reset_text` | `string` | `Wochen-Scoreboard zurücksetzen` | Text des Reset-Buttons |
 | `reset_confirm` | `string` | `...` | Bestätigungstext vor dem Reset |
@@ -142,10 +150,12 @@ Du kannst in der Beschreibung jeder Home Assistant To-Do-Aufgabe flexible Tags h
 | `xp: X` | Basis-Belohnung in XP (Standard: 10) | `xp: 20` |
 | `reset: N` | Automatischer Reset nach N Tagen | `reset: 1` (täglich), `reset: 3` (alle 3 Tage), `reset: 7` (wöchentlich) |
 | `bonus: +B` | Zusätzliches Kopfgeld pro überfälligem Tag | `bonus: +10` |
+| `icon: EMOJI` | Manuelles Emoji-Icon für die Aufgabe | `icon: 🍕` oder `icon: 🧹` |
+| `cat: NAME` | Manuelle Kategorie | `cat: kueche`, `cat: muell`, `cat: bad` |
 
 *Beispiel für die Aufgaben-Beschreibung in Home Assistant:*
 ```text
-[xp: 25] [reset: 2] [bonus: +10]
+[xp: 25] [reset: 2] [bonus: +10] [icon: 🍽️]
 Spülmaschine komplett ausräumen und Geschirr einsortieren.
 ```
 
@@ -156,6 +166,7 @@ Spülmaschine komplett ausräumen und Geschirr einsortieren.
 | `name` | `string` | **Erforderlich:** Name des Spielers (z. B. `Alex`) |
 | `entity` | `string` | **Erforderlich:** Counter- oder Input-Number-Entity (z. B. `counter.punkte_alex`) |
 | `person` | `string` | Optional: Zugehörige `person.*`-Entity für das automatische Profilbild |
+| `streak_entity`| `string` | Optional: Counter-Entity für den Streak (z. B. `counter.streak_alex`). Falls nicht angegeben, speichert die Karte Serien automatisch im Browser. |
 | `image` | `string` | Optional: Direkte Bild-URL oder Pfad (überschreibt das Bild der Person) |
 | `color` | `string` | Optional: Eigene Akzentfarbe (z. B. `#448aff`, `rgba(68,138,255,1)`) |
 
