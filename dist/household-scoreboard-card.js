@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.2.1';
+const CARD_VERSION = '1.3.0';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -126,6 +126,12 @@ class HouseholdScoreboardCard extends HTMLElement {
       this._soundMuted = localStorage.getItem('hsc_sound_muted') === 'true';
     } catch (e) {}
     this._rouletteSpinning = false;
+    this._handledNotificationActions = new Set();
+    this._notifSub = null;
+  }
+
+  disconnectedCallback() {
+    this._unsubscribeNotificationEvents();
   }
 
   static getConfigElement() {
@@ -211,7 +217,11 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const prevHass = this._hass;
     this._hass = hass;
+    if (!prevHass && hass) {
+      this._subscribeNotificationEvents();
+    }
     if (!this._config || !this._config.players) return;
 
     // Check if player states have changed
@@ -241,7 +251,160 @@ class HouseholdScoreboardCard extends HTMLElement {
     }
   }
 
+  async _subscribeNotificationEvents() {
+    if (this._notifSub || !this._hass || !this._hass.connection || !this._hass.connection.subscribeEvents) return;
+    try {
+      this._notifSub = await this._hass.connection.subscribeEvents((event) => {
+        if (event && event.data && typeof event.data.action === 'string' && event.data.action.startsWith('HSC_DONE|')) {
+          this._handleNotificationAction(event.data.action);
+        }
+      }, 'mobile_app_notification_action');
+    } catch (e) {
+      console.warn('HouseholdScoreboardCard: could not subscribe to mobile_app_notification_action', e);
+    }
+  }
+
+  _unsubscribeNotificationEvents() {
+    if (this._notifSub) {
+      try {
+        if (typeof this._notifSub === 'function') {
+          this._notifSub();
+        } else if (this._notifSub.then) {
+          this._notifSub.then(unsub => { if (typeof unsub === 'function') unsub(); });
+        }
+      } catch (e) {}
+      this._notifSub = null;
+    }
+  }
+
+  async _handleNotificationAction(actionString) {
+    if (!this._handledNotificationActions) this._handledNotificationActions = new Set();
+    if (this._handledNotificationActions.has(actionString)) return;
+    this._handledNotificationActions.add(actionString);
+
+    const parts = actionString.split('|');
+    if (parts.length < 5) return;
+    const [_, todoEntity, itemId, playerEntity, xpStr] = parts;
+    const xp = parseInt(xpStr, 10) || 10;
+
+    const players = this._config.players || [];
+    const player = players.find(p => p.entity === playerEntity) || { entity: playerEntity, name: 'Spieler' };
+
+    // Find the item in our list if available
+    const item = (this._todoItems || []).find(i => (i.uid === itemId || i.id === itemId || i.summary === itemId));
+    if (item) {
+      if (item.status === 'completed') return; // already done, avoid duplicate credit
+      const meta = this._parseTodoMetadata(item);
+      await this._completeTask(item, player, meta);
+    } else {
+      // Direct update via Home Assistant API
+      this._adjustScore(player, xp);
+      this._playSound('coin');
+      this._forwardHaptic('success');
+      try {
+        await this._hass.callWS({
+          type: 'todo/item/update',
+          entity_id: todoEntity || this._config.todo_entity,
+          item: itemId,
+          status: 'completed'
+        });
+      } catch (e) {
+        try {
+          await this._callService('todo', 'update_item', {
+            entity_id: todoEntity || this._config.todo_entity,
+            item: itemId,
+            status: 'completed'
+          });
+        } catch (e2) {}
+      }
+      this._fetchTodoItems();
+    }
+  }
+
+  _resolveNotifyService(player) {
+    if (player && player.notify_service) return player.notify_service;
+    if (this._config && this._config.notify_service) return this._config.notify_service;
+
+    // Auto-discovery from hass.services.notify
+    if (this._hass && this._hass.services && this._hass.services.notify && player) {
+      const services = Object.keys(this._hass.services.notify);
+      const cleanName = (player.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanName) {
+        const mobileMatch = services.find(s => s.toLowerCase().startsWith('mobile_app_') && s.toLowerCase().includes(cleanName));
+        if (mobileMatch) return `notify.${mobileMatch}`;
+        const anyMatch = services.find(s => s.toLowerCase().includes(cleanName));
+        if (anyMatch) return `notify.${anyMatch}`;
+      }
+    }
+    return null;
+  }
+
+  async _sendTaskNotification(player, item, meta) {
+    const notifyService = this._resolveNotifyService(player);
+    if (!notifyService) {
+      alert(`Kein Benachrichtigungsdienst für "${player.name}" konfiguriert!\n\nBitte trage in der Card-Konfiguration beim Spieler "notify_service: notify.mobile_app_..." ein.`);
+      return false;
+    }
+
+    const unit = this._config.unit || 'XP';
+    const itemId = item.uid || item.id || item.summary;
+    const taskName = meta.cleanSummary || item.summary || 'Aufgabe';
+    const actionKey = `HSC_DONE|${this._config.todo_entity}|${itemId}|${player.entity}|${meta.totalXp}`;
+
+    const title = `🎲 Haushalts-Roulette: Du bist dran!`;
+    const message = `Hey ${player.name}! Das Los hat entschieden:\nBitte erledige "${taskName}" (+${meta.totalXp} ${unit})!`;
+
+    const rawService = notifyService.replace(/^notify\./, '');
+    const serviceParts = rawService.split('.');
+    const domain = serviceParts.length > 1 ? serviceParts[0] : 'notify';
+    const service = serviceParts.length > 1 ? serviceParts[1] : serviceParts[0];
+
+    const actions = [
+      {
+        action: actionKey,
+        title: `✅ Erledigt (+${meta.totalXp} ${unit})`
+      }
+    ];
+
+    const payload = {
+      title,
+      message,
+      data: {
+        tag: `hsc_task_${itemId}`,
+        group: 'household-scoreboard',
+        channel: 'Haushalts-Aufgaben',
+        importance: 'high',
+        actions
+      }
+    };
+
+    try {
+      await this._hass.callService(domain, service, payload);
+      this._forwardHaptic('success');
+      this._playSound('coin');
+      return true;
+    } catch (err) {
+      console.warn('HouseholdScoreboardCard: error with notify service, trying notify.send_message', err);
+      try {
+        await this._hass.callService('notify', 'send_message', {
+          entity_id: notifyService.startsWith('notify.') ? notifyService : `notify.${notifyService}`,
+          title,
+          message,
+          data: payload.data
+        });
+        this._forwardHaptic('success');
+        this._playSound('coin');
+        return true;
+      } catch (err2) {
+        console.error('HouseholdScoreboardCard: error sending notification', err2);
+        alert(`Fehler beim Senden der Benachrichtigung via ${notifyService}:\n${err2.message || err2}`);
+        return false;
+      }
+    }
+  }
+
   _playSound(type) {
+
     if (this._config.enable_sound === false || this._soundMuted) return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -514,7 +677,27 @@ class HouseholdScoreboardCard extends HTMLElement {
           stage.style.display = 'none';
           winnerWrap.style.display = 'block';
           winnerName.innerHTML = `🎉 <b>${chosenPlayer.name}</b> ist dran!`;
-          winnerSub.textContent = `Aufgabe: "${targetItem.summary || 'Aufgabe'}" (+${meta.totalXp} ${this._config.unit || 'XP'})`;
+          winnerSub.textContent = `Aufgabe: "${meta.cleanSummary || targetItem.summary || 'Aufgabe'}" (+${meta.totalXp} ${this._config.unit || 'XP'})`;
+
+          const notifyBtn = this.shadowRoot.getElementById('roulette-notify-btn');
+          if (notifyBtn) {
+            notifyBtn.style.display = 'inline-flex';
+            notifyBtn.textContent = `📱 ${chosenPlayer.name} benachrichtigen`;
+            notifyBtn.disabled = false;
+            notifyBtn.classList.remove('sent');
+            notifyBtn.onclick = async () => {
+              notifyBtn.disabled = true;
+              notifyBtn.textContent = `⏳ Sende Nachricht...`;
+              const success = await this._sendTaskNotification(chosenPlayer, targetItem, meta);
+              if (success) {
+                notifyBtn.textContent = `✅ Nachricht gesendet!`;
+                notifyBtn.classList.add('sent');
+              } else {
+                notifyBtn.disabled = false;
+                notifyBtn.textContent = `📱 ${chosenPlayer.name} benachrichtigen`;
+              }
+            };
+          }
 
           acceptBtn.onclick = () => {
             this._closeRouletteModal();
@@ -2193,6 +2376,39 @@ class HouseholdScoreboardCard extends HTMLElement {
           flex-direction: column;
           gap: 8px;
         }
+        .roulette-notify-btn {
+          width: 100%;
+          background: linear-gradient(135deg, #00b0ff, #0081cb);
+          color: #ffffff;
+          border: none;
+          border-radius: 12px;
+          padding: 11px 16px;
+          font-size: 13.5px;
+          font-weight: 700;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          box-shadow: 0 4px 14px rgba(0, 176, 255, 0.35);
+          transition: transform 0.15s ease, background 0.2s ease, opacity 0.2s ease;
+        }
+        .roulette-notify-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 18px rgba(0, 176, 255, 0.45);
+        }
+        .roulette-notify-btn:active {
+          transform: scale(0.97);
+        }
+        .roulette-notify-btn:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+          transform: none;
+        }
+        .roulette-notify-btn.sent {
+          background: linear-gradient(135deg, #00e676, #00b248);
+          box-shadow: 0 4px 14px rgba(0, 230, 118, 0.35);
+        }
         .roulette-accept-btn {
           width: 100%;
           background: linear-gradient(135deg, #ffd700, #ff9800);
@@ -2283,6 +2499,7 @@ class HouseholdScoreboardCard extends HTMLElement {
               <div id="roulette-winner-name" class="roulette-winner-name"></div>
               <div id="roulette-winner-sub" class="roulette-winner-sub"></div>
               <div class="roulette-action-buttons">
+                <button id="roulette-notify-btn" class="roulette-notify-btn">📱 Benachrichtigung senden</button>
                 <button id="roulette-accept-btn" class="roulette-accept-btn">Aufgabe jetzt erledigen ⭐</button>
                 <button id="roulette-spin-again-btn" class="roulette-spin-again-btn">Erneut auslosen 🔄</button>
               </div>
@@ -2712,6 +2929,14 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       .join('');
   }
 
+  _getNotifyOptions() {
+    if (!this._hass || !this._hass.services || !this._hass.services.notify) return '';
+    return Object.keys(this._hass.services.notify)
+      .sort()
+      .map(s => `<option value="notify.${s}">notify.${s}</option>`)
+      .join('');
+  }
+
   _updateDatalists() {
     if (!this.shadowRoot) return;
     const counterDatalist = this.shadowRoot.getElementById('hsc-counter-list');
@@ -2721,6 +2946,10 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const personDatalist = this.shadowRoot.getElementById('hsc-person-list');
     if (personDatalist) {
       personDatalist.innerHTML = this._getPersonOptions();
+    }
+    const notifyDatalist = this.shadowRoot.getElementById('hsc-notify-list');
+    if (notifyDatalist) {
+      notifyDatalist.innerHTML = this._getNotifyOptions();
     }
   }
 
@@ -3061,6 +3290,9 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       <datalist id="hsc-person-list">
         ${this._getPersonOptions()}
       </datalist>
+      <datalist id="hsc-notify-list">
+        ${this._getNotifyOptions()}
+      </datalist>
 
       <div class="editor-container">
         <!-- TAB BAR -->
@@ -3134,6 +3366,12 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
                 <label class="form-label">Streak-Zähler (optional)</label>
                 <input type="text" list="hsc-counter-list" class="hsc-input p-input" data-idx="${idx}" data-prop="streak_entity" value="${p.streak_entity || ''}" placeholder="counter.streak_alex (optional)" />
                 <div class="field-hint">Zähler für Serien. Bleibt dieses Feld leer, speichert die Karte Serien automatisch im Browser!</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Benachrichtigungs-Dienst (optional)</label>
+                <input type="text" list="hsc-notify-list" class="hsc-input p-input" data-idx="${idx}" data-prop="notify_service" value="${p.notify_service || ''}" placeholder="notify.mobile_app_alex_phone (optional)" />
+                <div class="field-hint">Dienst für Smartphone-Benachrichtigungen bei Aufgabenauslosung (z. B. Companion App).</div>
               </div>
 
               <div class="form-group">
@@ -3220,6 +3458,12 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
               <input type="checkbox" id="cfg-show-task-icons" ${this._config.show_task_icons !== false ? 'checked' : ''} />
               <span class="slider"></span>
             </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Standard-Benachrichtigungsdienst (optional)</label>
+            <input type="text" list="hsc-notify-list" class="hsc-input" id="cfg-notify-service" value="${this._config.notify_service || ''}" placeholder="notify.notify (optional)" />
+            <div class="field-hint">Fallback für alle Spieler, bei denen kein eigener Benachrichtigungsdienst hinterlegt ist.</div>
           </div>
 
           <div style="background: rgba(68, 138, 255, 0.08); border: 1px solid rgba(68, 138, 255, 0.25); border-radius: 12px; padding: 12px 14px; margin-top: 8px;">
@@ -3456,6 +3700,10 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const showTodoToggle = this.shadowRoot.getElementById('cfg-show-todo');
     if (showTodoToggle) {
       showTodoToggle.addEventListener('change', (ev) => this._updateConfig({ show_todo: ev.target.checked }));
+    }
+    const notifyServiceInput = this.shadowRoot.getElementById('cfg-notify-service');
+    if (notifyServiceInput) {
+      notifyServiceInput.addEventListener('change', (ev) => this._updateConfig({ notify_service: ev.target.value.trim() }));
     }
 
     const todoTitleInput = this.shadowRoot.getElementById('cfg-todo-title');

@@ -168,10 +168,67 @@ Küche putzen [täglich] [+10/Tag] [icon: 🧽]
 | :--- | :--- | :--- |
 | `name` | `string` | **Erforderlich:** Name des Spielers (z. B. `Alex`) |
 | `entity` | `string` | **Erforderlich:** Counter- oder Input-Number-Entity (z. B. `counter.punkte_alex`) |
+| `notify_service` | `string` | Optional: Smartphone-Benachrichtigungsdienst für Push-Nachrichten (z. B. `notify.mobile_app_alex_phone`). |
 | `person` | `string` | Optional: Zugehörige `person.*`-Entity für das automatische Profilbild |
 | `streak_entity`| `string` | Optional: Counter-Entity für den Streak (z. B. `counter.streak_alex`). Falls nicht angegeben, speichert die Karte Serien automatisch im Browser. |
 | `image` | `string` | Optional: Direkte Bild-URL oder Pfad (überschreibt das Bild der Person) |
 | `color` | `string` | Optional: Eigene Akzentfarbe (z. B. `#448aff`, `rgba(68,138,255,1)`) |
+
+---
+
+### 📱 Actionable Push-Benachrichtigungen (Aufgaben direkt am Handy abhaken)
+
+Wenn eine Aufgabe per Aufgaben-Roulette 🎲 ausgelost wird, kannst du die Person direkt per Button benachrichtigen:
+
+1. **Button im Roulette-Fenster:** Klicke nach der Auslosung auf **`📱 [Name] benachrichtigen`**.
+2. **Push-Nachricht aufs Smartphone:** Die Person erhält eine Benachrichtigung über die Home Assistant Companion App:
+   > **🎲 Haushalts-Roulette: Du bist dran!**  
+   > *Hey Alex! Das Los hat entschieden: Bitte erledige "Spülmaschine ausräumen" (+25 XP)!*  
+   > **[ ✅ Erledigt (+25 XP) ]**
+3. **Direkt am Handy erledigen:** Tippt die Person auf den Button **"✅ Erledigt"**, wird die To-Do-Aufgabe in Home Assistant automatisch als erledigt markiert und die XP werden dem Spieler gutgeschrieben!
+
+#### 💡 24/7 Hintergrund-Automation (Optional)
+Wenn das Dashboard auf einem Wandtablet geöffnet ist, verarbeitet die Karte den Klick automatisch live. Damit das Abhaken per Smartphone auch dann zu 100% zuverlässig im Hintergrund funktioniert, wenn gerade kein Dashboard-Fenster geöffnet ist, kannst du diese einfache Automation in Home Assistant anlegen:
+
+```yaml
+alias: "Haushalt: Aufgabe per Benachrichtigung erledigen"
+description: "Hakt To-Do-Aufgaben ab und vergibt XP beim Klick auf 'Erledigt' in der Push-Nachricht."
+trigger:
+  - platform: event
+    event_type: mobile_app_notification_action
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.action is defined and trigger.event.data.action.startswith('HSC_DONE|') }}"
+action:
+  - variables:
+      parts: "{{ trigger.event.data.action.split('|') }}"
+      todo_entity: "{{ parts[1] }}"
+      item_id: "{{ parts[2] }}"
+      player_entity: "{{ parts[3] }}"
+      xp: "{{ parts[4] | int }}"
+  - service: todo.update_item
+    target:
+      entity_id: "{{ todo_entity }}"
+    data:
+      item: "{{ item_id }}"
+      status: completed
+  - if:
+      - condition: template
+        value_template: "{{ player_entity.startswith('counter.') }}"
+    then:
+      - service: counter.set_value
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          value: "{{ states(player_entity) | int + xp }}"
+    else:
+      - service: input_number.set_value
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          value: "{{ states(player_entity) | float + xp }}"
+mode: queued
+```
 
 ---
 
