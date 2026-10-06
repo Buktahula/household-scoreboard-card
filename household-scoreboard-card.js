@@ -764,7 +764,7 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     const renderCandidate = (p) => {
       const avatarHtml = p.avatar
-        ? `<img class="roulette-avatar" style="border-color:${p.color}" src="${p.avatar}" alt="${p.name}" />`
+        ? `<img class="roulette-avatar" style="border-color:${p.color}" src="${p.avatar}" alt="${p.name}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" /><div class="roulette-avatar" style="background:${p.color}; border-color:${p.color}; display:none;">${p.initials}</div>`
         : `<div class="roulette-avatar" style="background:${p.color}; border-color:${p.color}">${p.initials}</div>`;
       spinner.innerHTML = `
         ${avatarHtml}
@@ -868,21 +868,36 @@ class HouseholdScoreboardCard extends HTMLElement {
   }
 
   _getPlayerAvatar(player) {
-    if (player.avatar) return player.avatar;
-    if (player.image) return player.image;
-    if (player.person && this._hass && this._hass.states[player.person]) {
+    let url = null;
+    if (player.avatar) url = player.avatar;
+    else if (player.image) url = player.image;
+    else if (player.person && this._hass && this._hass.states[player.person]) {
       const p = this._hass.states[player.person];
       if (p.attributes && p.attributes.entity_picture) {
-        return p.attributes.entity_picture;
+        url = p.attributes.entity_picture;
       }
-    }
-    if (player.entity && this._hass && this._hass.states[player.entity]) {
+    } else if (player.entity && this._hass && this._hass.states[player.entity]) {
       const s = this._hass.states[player.entity];
       if (s.attributes && s.attributes.entity_picture) {
-        return s.attributes.entity_picture;
+        url = s.attributes.entity_picture;
       }
     }
-    return null;
+    if (!url) return null;
+
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+      return url;
+    }
+
+    if (this._hass) {
+      if (typeof this._hass.hassUrl === 'function') {
+        return this._hass.hassUrl(url);
+      }
+      const baseUrl = this._hass.auth?.data?.hassUrl || this._hass.connectionContext?.hassUrl;
+      if (baseUrl) {
+        return `${baseUrl.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;
+      }
+    }
+    return url;
   }
 
   _getPlayerPoints(player) {
@@ -1462,7 +1477,7 @@ class HouseholdScoreboardCard extends HTMLElement {
       card.className = 'modal-player-card';
 
       const avatarHtml = p.avatar
-        ? `<img class="modal-player-avatar" style="border-color:${p.color}" src="${p.avatar}" alt="${p.name}" />`
+        ? `<img class="modal-player-avatar" style="border-color:${p.color}" src="${p.avatar}" alt="${p.name}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" /><div class="modal-player-avatar" style="background:${p.color}; border-color:${p.color}; display:none;">${p.initials}</div>`
         : `<div class="modal-player-avatar" style="background:${p.color}; border-color:${p.color}">${p.initials}</div>`;
 
       card.innerHTML = `
@@ -2935,7 +2950,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         const slotClass = `podium-slot rank-${rank}`;
         
         const avatarHtml = p.avatar
-          ? `<img class="avatar-img" src="${p.avatar}" alt="${p.name}" />`
+          ? `<img class="avatar-img" src="${p.avatar}" alt="${p.name}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" /><div class="avatar-fallback" style="background:${p.color}; display:none;">${p.initials}</div>`
           : `<div class="avatar-fallback" style="background:${p.color}">${p.initials}</div>`;
 
         const crownHtml = rank === 1 ? `<div class="crown-badge">👑</div>` : '';
@@ -2976,7 +2991,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         const isLeader = idx === 0;
 
         const avatarHtml = p.avatar
-          ? `<img class="rank-row-avatar" src="${p.avatar}" alt="${p.name}" />`
+          ? `<img class="rank-row-avatar" src="${p.avatar}" alt="${p.name}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" /><div class="rank-row-avatar" style="background:${p.color}; display:none;">${p.initials}</div>`
           : `<div class="rank-row-avatar" style="background:${p.color}">${p.initials}</div>`;
 
         const nextHint = p.level.nextPts > 0 ? `noch ${p.level.nextPts} ${unit} bis ${p.level.nextTitle}` : 'Maximaler Rang!';
@@ -3021,7 +3036,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         card.className = 'action-card';
 
         const avatarHtml = p.avatar
-          ? `<img class="action-avatar" style="border-color:${p.color}" src="${p.avatar}" alt="${p.name}" />`
+          ? `<img class="action-avatar" style="border-color:${p.color}" src="${p.avatar}" alt="${p.name}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" /><div class="action-avatar" style="background:${p.color}; border-color:${p.color}; display:none;">${p.initials}</div>`
           : `<div class="action-avatar" style="background:${p.color}; border-color:${p.color}">${p.initials}</div>`;
 
         const step = this._config.action_step || 1;
