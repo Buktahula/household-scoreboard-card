@@ -206,9 +206,6 @@ class HouseholdScoreboardCard extends HTMLElement {
       todo_entity: '',
       show_todo: true,
       todo_title: '📋 Aufgaben & Quests',
-      max_tasks: 0,
-      todo_limit: 0,
-      todo_max_height: '',
       card_height: '',
       card_max_height: '',
       always_scroll: false,
@@ -259,6 +256,7 @@ class HouseholdScoreboardCard extends HTMLElement {
   _applyCardDimensions() {
     if (!this.shadowRoot) return;
     const card = this.shadowRoot.querySelector('ha-card');
+    const todoSection = this.shadowRoot.getElementById('todo-section');
     if (!card || !this._config) return;
 
     const rawHeight = this._config.card_height || this._config.height;
@@ -276,21 +274,26 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     if (maxHeight) {
       card.style.maxHeight = maxHeight;
-    } else if (alwaysScroll && !height) {
-      card.style.maxHeight = '500px';
     } else {
       card.style.maxHeight = '';
     }
 
-    if (alwaysScroll) {
-      card.classList.add('scrollable');
-      card.classList.add('force-scroll');
-    } else if (height || maxHeight) {
-      card.classList.add('scrollable');
-      card.classList.remove('force-scroll');
+    if (height || maxHeight) {
+      this.setAttribute('has-card-height', '');
     } else {
-      card.classList.remove('scrollable');
-      card.classList.remove('force-scroll');
+      this.removeAttribute('has-card-height');
+    }
+
+    card.classList.remove('scrollable');
+    card.classList.remove('force-scroll');
+
+    // Scrolling happens ONLY in the tasks section (#todo-section)
+    if (todoSection) {
+      if (alwaysScroll) {
+        todoSection.classList.add('force-scroll');
+      } else {
+        todoSection.classList.remove('force-scroll');
+      }
     }
   }
 
@@ -1409,31 +1412,21 @@ class HouseholdScoreboardCard extends HTMLElement {
       return;
     }
 
-    todoWrapper.style.display = 'block';
+    todoWrapper.style.display = 'flex';
     if (todoTitleText) {
       todoTitleText.textContent = this._config.todo_title || 'Aufgaben & Quests';
     }
 
     const items = (this._todoItems || []).filter(item => item.status === 'needs_action');
-    const maxTasks = parseInt(this._config.max_tasks || this._config.todo_limit || 0, 10);
-    const displayItems = (maxTasks > 0) ? items.slice(0, maxTasks) : items;
+    const displayItems = items;
 
     if (todoCounterBadge) {
-      if (maxTasks > 0 && items.length > maxTasks) {
-        todoCounterBadge.textContent = `${displayItems.length} von ${items.length} offen`;
-      } else {
-        todoCounterBadge.textContent = `${items.length} offen`;
-      }
+      todoCounterBadge.textContent = `${items.length} offen`;
       todoCounterBadge.style.display = items.length > 0 ? 'inline-block' : 'none';
     }
 
-    if (this._config.todo_max_height) {
-      todoSection.style.maxHeight = this._config.todo_max_height;
-      todoSection.style.overflowY = 'auto';
-    } else {
-      todoSection.style.maxHeight = '';
-      todoSection.style.overflowY = '';
-    }
+    todoSection.style.maxHeight = '';
+    todoSection.style.overflowY = '';
 
     if (items.length === 0) {
       todoSection.innerHTML = `
@@ -1520,12 +1513,7 @@ class HouseholdScoreboardCard extends HTMLElement {
       todoSection.appendChild(row);
     });
 
-    if (maxTasks > 0 && items.length > maxTasks) {
-      const moreRow = document.createElement('div');
-      moreRow.className = 'todo-more-info';
-      moreRow.textContent = `+ ${items.length - maxTasks} weitere Aufgaben in der Liste`;
-      todoSection.appendChild(moreRow);
-    }
+    this._applyCardDimensions();
   }
 
   _promptTaskCompletion(item, meta) {
@@ -1793,6 +1781,8 @@ class HouseholdScoreboardCard extends HTMLElement {
         ha-card {
           position: relative;
           overflow: hidden;
+          display: flex;
+          flex-direction: column;
           background: var(--ha-card-background, var(--card-background-color, var(--ha-card-background-default, #fff)));
           border-radius: var(--ha-card-border-radius, 16px);
           border-width: var(--ha-card-border-width, 1px);
@@ -1803,41 +1793,10 @@ class HouseholdScoreboardCard extends HTMLElement {
           color: var(--primary-text-color, #212121);
           font-family: var(--paper-font-body1_-_font-family, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
           box-sizing: border-box;
-          touch-action: pan-y;
-          scrollbar-width: thin;
-          scrollbar-color: rgba(127, 127, 127, 0.35) transparent;
-        }
-
-        ha-card.scrollable {
-          overflow-y: auto !important;
-          overflow-x: hidden !important;
-          -webkit-overflow-scrolling: touch;
-          overscroll-behavior-y: contain;
-        }
-
-        ha-card.force-scroll {
-          overflow-y: scroll !important;
-        }
-
-        ha-card.scrollable::-webkit-scrollbar,
-        ha-card.force-scroll::-webkit-scrollbar {
-          width: 6px;
-        }
-        ha-card.scrollable::-webkit-scrollbar-track,
-        ha-card.force-scroll::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ha-card.scrollable::-webkit-scrollbar-thumb,
-        ha-card.force-scroll::-webkit-scrollbar-thumb {
-          background: var(--scoreboard-scrollbar-thumb, rgba(127, 127, 127, 0.35));
-          border-radius: 4px;
-        }
-        ha-card.scrollable::-webkit-scrollbar-thumb:hover,
-        ha-card.force-scroll::-webkit-scrollbar-thumb:hover {
-          background: var(--scoreboard-scrollbar-thumb-hover, rgba(127, 127, 127, 0.6));
         }
 
         .header {
+          flex: 0 0 auto;
           text-align: center;
           margin-bottom: 22px;
         }
@@ -2238,8 +2197,18 @@ class HouseholdScoreboardCard extends HTMLElement {
         /* TO-DO / CHORES SECTION */
         #todo-wrapper {
           margin-top: 18px;
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+        }
+        :host([has-card-height]) #todo-wrapper {
+          flex: 1 1 auto;
+          overflow: hidden;
+          margin-top: 12px;
+          margin-bottom: 6px;
         }
         .todo-header {
+          flex: 0 0 auto;
           display: flex;
           justify-content: space-between;
           align-items: center;
@@ -2272,6 +2241,41 @@ class HouseholdScoreboardCard extends HTMLElement {
           display: flex;
           flex-direction: column;
           gap: 8px;
+          max-height: 320px;
+          overflow-y: auto;
+          overflow-x: hidden;
+          -webkit-overflow-scrolling: touch;
+          touch-action: pan-y;
+          overscroll-behavior-y: contain;
+          scrollbar-width: thin;
+          scrollbar-color: var(--scoreboard-scrollbar-thumb, rgba(127, 127, 127, 0.35)) transparent;
+          padding-right: 4px;
+        }
+        :host([compact]) .todo-list {
+          max-height: 240px;
+          gap: 5px;
+          padding-right: 3px;
+        }
+        :host([has-card-height]) .todo-list {
+          max-height: none;
+          flex: 1 1 auto;
+          min-height: 60px;
+        }
+        .todo-list.force-scroll {
+          overflow-y: scroll !important;
+        }
+        .todo-list::-webkit-scrollbar {
+          width: 5px;
+        }
+        .todo-list::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .todo-list::-webkit-scrollbar-thumb {
+          background: var(--scoreboard-scrollbar-thumb, rgba(127, 127, 127, 0.35));
+          border-radius: 4px;
+        }
+        .todo-list::-webkit-scrollbar-thumb:hover {
+          background: var(--scoreboard-scrollbar-thumb-hover, rgba(127, 127, 127, 0.6));
         }
         .todo-card {
           background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
@@ -3452,9 +3456,6 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       unit: 'XP',
       action_step: 1,
       allow_decrement: true,
-      max_tasks: 0,
-      todo_limit: 0,
-      todo_max_height: '',
       card_height: '',
       card_max_height: '',
       always_scroll: false,
@@ -4145,18 +4146,6 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
             <input type="text" class="hsc-input" id="cfg-todo-title" value="${this._config.todo_title || '📋 Aufgaben & Quests'}" placeholder="📋 Aufgaben & Quests" />
           </div>
 
-          <div class="form-group">
-            <label class="form-label">Maximale Anzahl sichtbarer Aufgaben</label>
-            <input type="number" min="0" max="50" class="hsc-input" id="cfg-max-tasks" value="${this._config.max_tasks !== undefined ? this._config.max_tasks : (this._config.todo_limit || '')}" placeholder="0 = alle anzeigen" />
-            <div class="field-hint">Begrenzt die Aufgabenliste auf die ersten N Aufgaben (ideal für Nest Hub, Google Cast oder kleine Bildschirme). 0 = unbegrenzt.</div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Maximale Höhe der Aufgabenliste (z. B. 350px)</label>
-            <input type="text" class="hsc-input" id="cfg-todo-max-height" value="${this._config.todo_max_height || ''}" placeholder="z. B. 350px (optional)" />
-            <div class="field-hint">Aktiviert eine scrollbare Aufgabenliste mit festgelegter Maximalhöhe.</div>
-          </div>
-
           <div class="toggle-row">
             <div class="toggle-info">
               <div class="toggle-title">🎲 "Wer ist dran?" (Aufgaben-Roulette)</div>
@@ -4213,19 +4202,19 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
           <div class="form-group">
             <label class="form-label">Kartenhöhe (z. B. 480px, 500px)</label>
             <input type="text" class="hsc-input" id="cfg-card-height" value="${this._config.card_height || this._config.height || ''}" placeholder="z. B. 480px (optional)" />
-            <div class="field-hint">Legt eine feste Kartenhöhe in Pixeln fest. Übersteigende Inhalte können flüssig vertikal gescrollt werden (ideal für Google Cast & Küchen-Displays).</div>
+            <div class="field-hint">Legt eine feste Kartenhöhe in Pixeln fest (ideal für Google Cast & Küchen-Displays). Die Aufgaben-Sektion passt sich automatisch an und wird scrollbar.</div>
           </div>
 
           <div class="form-group">
             <label class="form-label">Maximale Kartenhöhe (z. B. 500px)</label>
             <input type="text" class="hsc-input" id="cfg-card-max-height" value="${this._config.card_max_height || this._config.max_height || ''}" placeholder="z. B. 500px (optional)" />
-            <div class="field-hint">Begrenzt die Gesamthöhe der Karte nach oben hin. Größere Inhalte werden automatisch scrollbar.</div>
+            <div class="field-hint">Begrenzt die Gesamthöhe der Karte nach oben hin. Die Aufgaben-Sektion wird automatisch scrollbar.</div>
           </div>
 
           <div class="toggle-row">
             <div class="toggle-info">
               <div class="toggle-title">📜 Scrollfunktion immer erzwingen</div>
-              <div class="toggle-desc">Aktiviert immer eine vertikale Scroll-Möglichkeit auf der gesamten Karte (auch bei wenigen Aufgaben oder kompaktem Display).</div>
+              <div class="toggle-desc">Aktiviert immer eine vertikale Scroll-Möglichkeit in der Aufgaben-Sektion (auch bei wenigen Aufgaben).</div>
             </div>
             <label class="switch">
               <input type="checkbox" id="cfg-always-scroll" ${this._config.always_scroll === true || this._config.always_scroll === 'true' ? 'checked' : ''} />
@@ -4476,17 +4465,6 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const showTodoToggle = this.shadowRoot.getElementById('cfg-show-todo');
     if (showTodoToggle) {
       showTodoToggle.addEventListener('change', (ev) => this._updateConfig({ show_todo: ev.target.checked }));
-    }
-    const maxTasksInput = this.shadowRoot.getElementById('cfg-max-tasks');
-    if (maxTasksInput) {
-      maxTasksInput.addEventListener('input', (ev) => {
-        const val = parseInt(ev.target.value, 10);
-        this._updateConfig({ max_tasks: isNaN(val) ? 0 : val });
-      });
-    }
-    const todoMaxHeightInput = this.shadowRoot.getElementById('cfg-todo-max-height');
-    if (todoMaxHeightInput) {
-      todoMaxHeightInput.addEventListener('change', (ev) => this._updateConfig({ todo_max_height: ev.target.value.trim() }));
     }
     const notifyServiceInput = this.shadowRoot.getElementById('cfg-notify-service');
     if (notifyServiceInput) {
