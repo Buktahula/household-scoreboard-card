@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.3.3';
+const CARD_VERSION = '1.3.5';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -206,6 +206,10 @@ class HouseholdScoreboardCard extends HTMLElement {
       todo_entity: '',
       show_todo: true,
       todo_title: '📋 Aufgaben & Quests',
+      max_tasks: 0,
+      todo_limit: 0,
+      todo_max_height: '',
+      compact: false,
       show_streaks: true,
       show_task_icons: true,
       show_roulette: true,
@@ -214,6 +218,12 @@ class HouseholdScoreboardCard extends HTMLElement {
       players: [],
       ...config
     };
+
+    if (this._config.compact) {
+      this.setAttribute('compact', '');
+    } else {
+      this.removeAttribute('compact');
+    }
 
     this._render();
     if (this._hass) {
@@ -1353,10 +1363,24 @@ class HouseholdScoreboardCard extends HTMLElement {
     }
 
     const items = (this._todoItems || []).filter(item => item.status === 'needs_action');
+    const maxTasks = parseInt(this._config.max_tasks || this._config.todo_limit || 0, 10);
+    const displayItems = (maxTasks > 0) ? items.slice(0, maxTasks) : items;
 
     if (todoCounterBadge) {
-      todoCounterBadge.textContent = `${items.length} offen`;
+      if (maxTasks > 0 && items.length > maxTasks) {
+        todoCounterBadge.textContent = `${displayItems.length} von ${items.length} offen`;
+      } else {
+        todoCounterBadge.textContent = `${items.length} offen`;
+      }
       todoCounterBadge.style.display = items.length > 0 ? 'inline-block' : 'none';
+    }
+
+    if (this._config.todo_max_height) {
+      todoSection.style.maxHeight = this._config.todo_max_height;
+      todoSection.style.overflowY = 'auto';
+    } else {
+      todoSection.style.maxHeight = '';
+      todoSection.style.overflowY = '';
     }
 
     if (items.length === 0) {
@@ -1371,7 +1395,7 @@ class HouseholdScoreboardCard extends HTMLElement {
     const unit = this._config.unit || 'XP';
     todoSection.innerHTML = '';
 
-    items.forEach(item => {
+    displayItems.forEach(item => {
       const meta = this._parseTodoMetadata(item);
       const row = document.createElement('div');
       row.className = `todo-card ${meta.overdueDays > 0 ? 'overdue' : ''}`;
@@ -1443,6 +1467,13 @@ class HouseholdScoreboardCard extends HTMLElement {
 
       todoSection.appendChild(row);
     });
+
+    if (maxTasks > 0 && items.length > maxTasks) {
+      const moreRow = document.createElement('div');
+      moreRow.className = 'todo-more-info';
+      moreRow.textContent = `+ ${items.length - maxTasks} weitere Aufgaben in der Liste`;
+      todoSection.appendChild(moreRow);
+    }
   }
 
   _promptTaskCompletion(item, meta) {
@@ -1695,6 +1726,12 @@ class HouseholdScoreboardCard extends HTMLElement {
 
   _render() {
     if (!this.shadowRoot) return;
+
+    if (this._config && this._config.compact) {
+      this.setAttribute('compact', '');
+    } else {
+      this.removeAttribute('compact');
+    }
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -2776,6 +2813,227 @@ class HouseholdScoreboardCard extends HTMLElement {
         .roulette-spin-again-btn:hover {
           background: var(--divider-color, rgba(127, 127, 127, 0.2));
         }
+
+        /* SCROLLBAR & OVERFLOW FOR TO-DO LIST */
+        .todo-list {
+          scrollbar-width: thin;
+          scrollbar-color: var(--divider-color, rgba(127, 127, 127, 0.3)) transparent;
+        }
+        .todo-list::-webkit-scrollbar {
+          width: 5px;
+        }
+        .todo-list::-webkit-scrollbar-thumb {
+          background: var(--divider-color, rgba(127, 127, 127, 0.3));
+          border-radius: 4px;
+        }
+        .todo-more-info {
+          text-align: center;
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--secondary-text-color, inherit);
+          opacity: 0.75;
+          padding: 6px 10px;
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
+          border: 1px dashed var(--divider-color, rgba(127, 127, 127, 0.2));
+          border-radius: 10px;
+          margin-top: 2px;
+        }
+
+        /* COMPACT MODE (FOR NEST HUB, GOOGLE CAST & SMALL SCREENS) */
+        :host([compact]) ha-card {
+          padding: 10px 12px;
+        }
+        :host([compact]) .header {
+          margin-bottom: 8px;
+        }
+        :host([compact]) .title {
+          font-size: 15px;
+          gap: 6px;
+        }
+        :host([compact]) .subtitle {
+          font-size: 10px;
+          margin-top: 2px;
+        }
+        :host([compact]) .podium-container {
+          margin-bottom: 10px;
+          padding-top: 6px;
+          gap: 8px;
+        }
+        :host([compact]) .podium-slot {
+          max-width: 90px;
+        }
+        :host([compact]) .rank-1 .avatar-img,
+        :host([compact]) .rank-1 .avatar-fallback {
+          width: 46px;
+          height: 46px;
+          font-size: 16px;
+        }
+        :host([compact]) .rank-2 .avatar-img,
+        :host([compact]) .rank-2 .avatar-fallback {
+          width: 38px;
+          height: 38px;
+          font-size: 13px;
+        }
+        :host([compact]) .rank-3 .avatar-img,
+        :host([compact]) .rank-3 .avatar-fallback {
+          width: 34px;
+          height: 34px;
+          font-size: 12px;
+        }
+        :host([compact]) .crown-badge {
+          font-size: 15px;
+          top: -11px;
+        }
+        :host([compact]) .medal-badge {
+          width: 16px;
+          height: 16px;
+          font-size: 9px;
+          bottom: -3px;
+          right: -2px;
+        }
+        :host([compact]) .podium-name {
+          font-size: 11.5px;
+          margin-top: 4px;
+        }
+        :host([compact]) .rank-1 .podium-name {
+          font-size: 12.5px;
+        }
+        :host([compact]) .podium-score {
+          font-size: 11px;
+          margin-top: 1px;
+          padding: 1px 6px;
+          border-radius: 8px;
+        }
+        :host([compact]) .podium-level {
+          font-size: 9px;
+          margin-top: 1px;
+        }
+        :host([compact]) .podium-streak {
+          font-size: 8.5px;
+          padding: 1px 5px;
+          margin-top: 1px;
+        }
+        :host([compact]) .rankings-list {
+          gap: 5px;
+          margin-top: 8px;
+        }
+        :host([compact]) .rank-row {
+          padding: 5px 8px;
+          gap: 8px;
+          border-radius: 10px;
+        }
+        :host([compact]) .rank-row-avatar {
+          width: 26px;
+          height: 26px;
+          font-size: 10px;
+        }
+        :host([compact]) .rank-pos {
+          font-size: 12px;
+          width: 18px;
+        }
+        :host([compact]) .rank-name {
+          font-size: 12px;
+        }
+        :host([compact]) .rank-score {
+          font-size: 12px;
+        }
+        :host([compact]) .rank-level-badge {
+          font-size: 9.5px;
+          padding: 1px 5px;
+        }
+        :host([compact]) .rank-progress-wrap {
+          height: 4px;
+          margin-top: 2px;
+        }
+        :host([compact]) #todo-wrapper {
+          margin-top: 10px;
+        }
+        :host([compact]) .todo-header {
+          margin: 0 2px 6px 2px;
+        }
+        :host([compact]) .todo-title {
+          font-size: 10px;
+        }
+        :host([compact]) .todo-counter-badge {
+          font-size: 9px;
+          padding: 1px 6px;
+        }
+        :host([compact]) .todo-roulette-btn {
+          font-size: 10px;
+          padding: 2px 6px;
+          gap: 3px;
+        }
+        :host([compact]) .todo-list {
+          gap: 5px;
+        }
+        :host([compact]) .todo-card {
+          padding: 6px 8px;
+          gap: 8px;
+          border-radius: 10px;
+        }
+        :host([compact]) .todo-check-btn {
+          width: 26px;
+          height: 26px;
+          min-width: 26px;
+          font-size: 13px;
+        }
+        :host([compact]) .todo-cat-badge {
+          width: 26px;
+          height: 26px;
+          font-size: 13px;
+          margin-right: 0;
+          border-radius: 8px;
+        }
+        :host([compact]) .todo-summary {
+          font-size: 12px;
+          margin-bottom: 1px;
+        }
+        :host([compact]) .todo-desc {
+          font-size: 9.5px;
+          margin-bottom: 2px;
+        }
+        :host([compact]) .todo-badges {
+          gap: 4px;
+          margin-top: 2px;
+        }
+        :host([compact]) .todo-pill {
+          font-size: 9px;
+          padding: 1px 5px;
+          border-radius: 6px;
+          gap: 3px;
+        }
+        :host([compact]) .todo-roulette-mini-btn {
+          width: 24px;
+          height: 24px;
+          font-size: 12px;
+        }
+        :host([compact]) .todo-more-info {
+          font-size: 9.5px;
+          padding: 3px 6px;
+        }
+        :host([compact]) .actions-title {
+          font-size: 10px;
+          margin-bottom: 6px;
+        }
+        :host([compact]) .actions-grid {
+          gap: 6px;
+          margin-top: 8px;
+        }
+        :host([compact]) .action-card {
+          padding: 6px 8px;
+        }
+        :host([compact]) .action-btn {
+          padding: 5px 8px;
+          font-size: 12px;
+        }
+        :host([compact]) .reset-wrap {
+          margin-top: 8px;
+          padding-top: 6px;
+        }
+        :host([compact]) .reset-btn {
+          font-size: 11px;
+          padding: 6px 12px;
+        }
       </style>
 
       <ha-card>
@@ -3109,6 +3367,10 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       unit: 'XP',
       action_step: 1,
       allow_decrement: true,
+      max_tasks: 0,
+      todo_limit: 0,
+      todo_max_height: '',
+      compact: false,
       players: [],
       ...config
     };
@@ -3795,6 +4057,18 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
             <input type="text" class="hsc-input" id="cfg-todo-title" value="${this._config.todo_title || '📋 Aufgaben & Quests'}" placeholder="📋 Aufgaben & Quests" />
           </div>
 
+          <div class="form-group">
+            <label class="form-label">Maximale Anzahl sichtbarer Aufgaben</label>
+            <input type="number" min="0" max="50" class="hsc-input" id="cfg-max-tasks" value="${this._config.max_tasks !== undefined ? this._config.max_tasks : (this._config.todo_limit || '')}" placeholder="0 = alle anzeigen" />
+            <div class="field-hint">Begrenzt die Aufgabenliste auf die ersten N Aufgaben (ideal für Nest Hub, Google Cast oder kleine Bildschirme). 0 = unbegrenzt.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Maximale Höhe der Aufgabenliste (z. B. 350px)</label>
+            <input type="text" class="hsc-input" id="cfg-todo-max-height" value="${this._config.todo_max_height || ''}" placeholder="z. B. 350px (optional)" />
+            <div class="field-hint">Aktiviert eine scrollbare Aufgabenliste mit festgelegter Maximalhöhe.</div>
+          </div>
+
           <div class="toggle-row">
             <div class="toggle-info">
               <div class="toggle-title">🎲 "Wer ist dran?" (Aufgaben-Roulette)</div>
@@ -3837,6 +4111,17 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
 
         <!-- TAB 3: DISPLAY & ACTIONS -->
         <div class="tab-panel" style="display: ${activeTab === 'display' ? 'flex' : 'none'};">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Kompakter Modus (Nest Hub / Kleine Displays)</div>
+              <div class="toggle-desc">Reduziert Abstände, Schrift- und Avatargrößen, damit die Karte perfekt auf kleine Bildschirme passt.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-compact" ${this._config.compact === true ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
           <div class="toggle-row">
             <div class="toggle-info">
               <div class="toggle-title">Siegertreppchen (Podium) anzeigen</div>
@@ -4048,6 +4333,10 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     }
 
     // Hook display switches & inputs
+    const compactToggle = this.shadowRoot.getElementById('cfg-compact');
+    if (compactToggle) {
+      compactToggle.addEventListener('change', (ev) => this._updateConfig({ compact: ev.target.checked }));
+    }
     const podiumToggle = this.shadowRoot.getElementById('cfg-show-podium');
     if (podiumToggle) {
       podiumToggle.addEventListener('change', (ev) => this._updateConfig({ show_podium: ev.target.checked }));
@@ -4064,6 +4353,17 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const showTodoToggle = this.shadowRoot.getElementById('cfg-show-todo');
     if (showTodoToggle) {
       showTodoToggle.addEventListener('change', (ev) => this._updateConfig({ show_todo: ev.target.checked }));
+    }
+    const maxTasksInput = this.shadowRoot.getElementById('cfg-max-tasks');
+    if (maxTasksInput) {
+      maxTasksInput.addEventListener('input', (ev) => {
+        const val = parseInt(ev.target.value, 10);
+        this._updateConfig({ max_tasks: isNaN(val) ? 0 : val });
+      });
+    }
+    const todoMaxHeightInput = this.shadowRoot.getElementById('cfg-todo-max-height');
+    if (todoMaxHeightInput) {
+      todoMaxHeightInput.addEventListener('change', (ev) => this._updateConfig({ todo_max_height: ev.target.value.trim() }));
     }
     const notifyServiceInput = this.shadowRoot.getElementById('cfg-notify-service');
     if (notifyServiceInput) {
