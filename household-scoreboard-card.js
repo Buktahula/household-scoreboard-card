@@ -268,8 +268,20 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     if (height) {
       card.style.height = height;
+      if (height === '100%') {
+        this.style.height = '100%';
+        this.style.flex = '1 1 auto';
+        this.style.minHeight = '0';
+      } else {
+        this.style.height = '';
+        this.style.flex = '';
+        this.style.minHeight = '';
+      }
     } else {
       card.style.height = '';
+      this.style.height = '';
+      this.style.flex = '';
+      this.style.minHeight = '';
     }
 
     if (maxHeight) {
@@ -1777,6 +1789,15 @@ class HouseholdScoreboardCard extends HTMLElement {
       <style>
         :host {
           display: block;
+        }
+        :host([has-card-height]) {
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+        }
+        :host([has-card-height]) ha-card {
+          flex: 1 1 auto;
+          min-height: 0;
         }
         ha-card {
           position: relative;
