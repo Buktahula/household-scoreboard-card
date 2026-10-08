@@ -1828,6 +1828,7 @@ class HouseholdScoreboardCard extends HTMLElement {
 
         /* PODIUM */
         .podium-container {
+          flex: 0 0 auto;
           display: flex;
           align-items: flex-end;
           justify-content: center;
@@ -1991,6 +1992,7 @@ class HouseholdScoreboardCard extends HTMLElement {
 
         /* RANKINGS LIST */
         .rankings-list {
+          flex: 0 0 auto;
           display: flex;
           flex-direction: column;
           gap: 9px;
@@ -2082,13 +2084,17 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
 
         /* ACTIONS GRID */
+        #actions-wrapper {
+          flex: 0 0 auto;
+          margin-top: 18px;
+        }
         .actions-title {
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.8px;
           font-weight: 700;
           opacity: 0.75;
-          margin: 22px 0 10px 4px;
+          margin: 4px 0 10px 4px;
           display: flex;
           align-items: center;
           gap: 6px;
@@ -2196,6 +2202,7 @@ class HouseholdScoreboardCard extends HTMLElement {
 
         /* TO-DO / CHORES SECTION */
         #todo-wrapper {
+          flex: 0 0 auto;
           margin-top: 18px;
           display: flex;
           flex-direction: column;
@@ -2203,6 +2210,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         :host([has-card-height]) #todo-wrapper {
           flex: 1 1 auto;
+          min-height: 0;
           overflow: hidden;
           margin-top: 12px;
           margin-bottom: 6px;
@@ -2259,7 +2267,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         :host([has-card-height]) .todo-list {
           max-height: none;
           flex: 1 1 auto;
-          min-height: 60px;
+          min-height: 0;
         }
         .todo-list.force-scroll {
           overflow-y: scroll !important;
@@ -2278,6 +2286,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           background: var(--scoreboard-scrollbar-thumb-hover, rgba(127, 127, 127, 0.6));
         }
         .todo-card {
+          flex: 0 0 auto;
+          flex-shrink: 0;
+          box-sizing: border-box;
           background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
           border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.15));
           border-radius: var(--ha-card-border-radius, 14px);
@@ -2304,6 +2315,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           width: 32px;
           height: 32px;
           min-width: 32px;
+          flex-shrink: 0;
           border-radius: 50%;
           background: var(--secondary-background-color, rgba(127, 127, 127, 0.1));
           border: 2px solid var(--divider-color, rgba(127, 127, 127, 0.25));
@@ -2423,6 +2435,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           color: #ffd700;
         }
         .todo-empty {
+          flex: 0 0 auto;
+          flex-shrink: 0;
+          box-sizing: border-box;
           text-align: center;
           padding: 16px;
           font-size: 12.5px;
@@ -2573,6 +2588,7 @@ class HouseholdScoreboardCard extends HTMLElement {
 
         /* RESET BUTTON */
         .reset-wrap {
+          flex: 0 0 auto;
           margin-top: 18px;
           text-align: center;
         }
@@ -2901,30 +2917,6 @@ class HouseholdScoreboardCard extends HTMLElement {
           background: var(--divider-color, rgba(127, 127, 127, 0.2));
         }
 
-        /* SCROLLBAR & OVERFLOW FOR TO-DO LIST */
-        .todo-list {
-          scrollbar-width: thin;
-          scrollbar-color: var(--divider-color, rgba(127, 127, 127, 0.3)) transparent;
-        }
-        .todo-list::-webkit-scrollbar {
-          width: 5px;
-        }
-        .todo-list::-webkit-scrollbar-thumb {
-          background: var(--divider-color, rgba(127, 127, 127, 0.3));
-          border-radius: 4px;
-        }
-        .todo-more-info {
-          text-align: center;
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--secondary-text-color, inherit);
-          opacity: 0.75;
-          padding: 6px 10px;
-          background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
-          border: 1px dashed var(--divider-color, rgba(127, 127, 127, 0.2));
-          border-radius: 10px;
-          margin-top: 2px;
-        }
 
         /* COMPACT MODE (FOR NEST HUB, GOOGLE CAST & SMALL SCREENS) */
         :host([compact]) ha-card {
@@ -3054,6 +3046,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           gap: 5px;
         }
         :host([compact]) .todo-card {
+          flex: 0 0 auto;
+          flex-shrink: 0;
+          box-sizing: border-box;
           padding: 6px 8px;
           gap: 8px;
           border-radius: 10px;
@@ -3062,6 +3057,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           width: 26px;
           height: 26px;
           min-width: 26px;
+          flex-shrink: 0;
           font-size: 13px;
         }
         :host([compact]) .todo-cat-badge {
@@ -3070,6 +3066,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           font-size: 13px;
           margin-right: 0;
           border-radius: 8px;
+          flex-shrink: 0;
         }
         :host([compact]) .todo-summary {
           font-size: 12px;
@@ -3093,10 +3090,10 @@ class HouseholdScoreboardCard extends HTMLElement {
           width: 24px;
           height: 24px;
           font-size: 12px;
+          flex-shrink: 0;
         }
-        :host([compact]) .todo-more-info {
-          font-size: 9.5px;
-          padding: 3px 6px;
+        :host([compact]) #actions-wrapper {
+          margin-top: 10px;
         }
         :host([compact]) .actions-title {
           font-size: 10px;
