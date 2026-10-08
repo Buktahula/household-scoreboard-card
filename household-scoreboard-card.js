@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.3.5';
+const CARD_VERSION = '1.3.6';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -209,6 +209,9 @@ class HouseholdScoreboardCard extends HTMLElement {
       max_tasks: 0,
       todo_limit: 0,
       todo_max_height: '',
+      card_height: '',
+      card_max_height: '',
+      always_scroll: false,
       compact: false,
       show_streaks: true,
       show_task_icons: true,
@@ -226,6 +229,7 @@ class HouseholdScoreboardCard extends HTMLElement {
     }
 
     this._render();
+    this._applyCardDimensions();
     if (this._hass) {
       const currentTheme = this._config.theme || this._hass.themes?.theme || 'default';
       const isDark = (this._config.theme && this._config.theme !== 'default')
@@ -239,6 +243,54 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     if (this._hass && this._config.todo_entity) {
       this._fetchTodoItems();
+    }
+  }
+
+  _formatDimension(val) {
+    if (val === undefined || val === null || val === '') return '';
+    const str = String(val).trim();
+    if (!str) return '';
+    if (/^\d+(\.\d+)?$/.test(str)) {
+      return `${str}px`;
+    }
+    return str;
+  }
+
+  _applyCardDimensions() {
+    if (!this.shadowRoot) return;
+    const card = this.shadowRoot.querySelector('ha-card');
+    if (!card || !this._config) return;
+
+    const rawHeight = this._config.card_height || this._config.height;
+    const rawMaxHeight = this._config.card_max_height || this._config.max_height;
+    const alwaysScroll = this._config.always_scroll === true || this._config.always_scroll === 'true';
+
+    const height = this._formatDimension(rawHeight);
+    const maxHeight = this._formatDimension(rawMaxHeight);
+
+    if (height) {
+      card.style.height = height;
+    } else {
+      card.style.height = '';
+    }
+
+    if (maxHeight) {
+      card.style.maxHeight = maxHeight;
+    } else if (alwaysScroll && !height) {
+      card.style.maxHeight = '500px';
+    } else {
+      card.style.maxHeight = '';
+    }
+
+    if (alwaysScroll) {
+      card.classList.add('scrollable');
+      card.classList.add('force-scroll');
+    } else if (height || maxHeight) {
+      card.classList.add('scrollable');
+      card.classList.remove('force-scroll');
+    } else {
+      card.classList.remove('scrollable');
+      card.classList.remove('force-scroll');
     }
   }
 
@@ -1751,6 +1803,38 @@ class HouseholdScoreboardCard extends HTMLElement {
           color: var(--primary-text-color, #212121);
           font-family: var(--paper-font-body1_-_font-family, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
           box-sizing: border-box;
+          touch-action: pan-y;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(127, 127, 127, 0.35) transparent;
+        }
+
+        ha-card.scrollable {
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-y: contain;
+        }
+
+        ha-card.force-scroll {
+          overflow-y: scroll !important;
+        }
+
+        ha-card.scrollable::-webkit-scrollbar,
+        ha-card.force-scroll::-webkit-scrollbar {
+          width: 6px;
+        }
+        ha-card.scrollable::-webkit-scrollbar-track,
+        ha-card.force-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ha-card.scrollable::-webkit-scrollbar-thumb,
+        ha-card.force-scroll::-webkit-scrollbar-thumb {
+          background: var(--scoreboard-scrollbar-thumb, rgba(127, 127, 127, 0.35));
+          border-radius: 4px;
+        }
+        ha-card.scrollable::-webkit-scrollbar-thumb:hover,
+        ha-card.force-scroll::-webkit-scrollbar-thumb:hover {
+          background: var(--scoreboard-scrollbar-thumb-hover, rgba(127, 127, 127, 0.6));
         }
 
         .header {
@@ -2347,7 +2431,7 @@ class HouseholdScoreboardCard extends HTMLElement {
 
         /* MODAL POPUP */
         .modal-backdrop {
-          position: absolute;
+          position: fixed;
           top: 0;
           left: 0;
           right: 0;
@@ -2358,8 +2442,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           align-items: center;
           justify-content: center;
           padding: 16px;
-          z-index: 100;
-          border-radius: var(--ha-card-border-radius, 16px);
+          z-index: 9999;
           animation: modal-fade-in 0.2s ease;
         }
         @keyframes modal-fade-in {
@@ -3153,6 +3236,8 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     if (!titleEl || !this._config) return;
 
+    this._applyCardDimensions();
+
     // Sound toggle state & button visibility
     const soundBtn = this.shadowRoot.getElementById('sound-btn');
     const soundIcon = this.shadowRoot.getElementById('sound-icon');
@@ -3370,6 +3455,9 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       max_tasks: 0,
       todo_limit: 0,
       todo_max_height: '',
+      card_height: '',
+      card_max_height: '',
+      always_scroll: false,
       compact: false,
       players: [],
       ...config
@@ -4122,6 +4210,29 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
             </label>
           </div>
 
+          <div class="form-group">
+            <label class="form-label">Kartenhöhe (z. B. 480px, 500px)</label>
+            <input type="text" class="hsc-input" id="cfg-card-height" value="${this._config.card_height || this._config.height || ''}" placeholder="z. B. 480px (optional)" />
+            <div class="field-hint">Legt eine feste Kartenhöhe in Pixeln fest. Übersteigende Inhalte können flüssig vertikal gescrollt werden (ideal für Google Cast & Küchen-Displays).</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Maximale Kartenhöhe (z. B. 500px)</label>
+            <input type="text" class="hsc-input" id="cfg-card-max-height" value="${this._config.card_max_height || this._config.max_height || ''}" placeholder="z. B. 500px (optional)" />
+            <div class="field-hint">Begrenzt die Gesamthöhe der Karte nach oben hin. Größere Inhalte werden automatisch scrollbar.</div>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">📜 Scrollfunktion immer erzwingen</div>
+              <div class="toggle-desc">Aktiviert immer eine vertikale Scroll-Möglichkeit auf der gesamten Karte (auch bei wenigen Aufgaben oder kompaktem Display).</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-always-scroll" ${this._config.always_scroll === true || this._config.always_scroll === 'true' ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
           <div class="toggle-row">
             <div class="toggle-info">
               <div class="toggle-title">Siegertreppchen (Podium) anzeigen</div>
@@ -4336,6 +4447,18 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const compactToggle = this.shadowRoot.getElementById('cfg-compact');
     if (compactToggle) {
       compactToggle.addEventListener('change', (ev) => this._updateConfig({ compact: ev.target.checked }));
+    }
+    const cardHeightInput = this.shadowRoot.getElementById('cfg-card-height');
+    if (cardHeightInput) {
+      cardHeightInput.addEventListener('change', (ev) => this._updateConfig({ card_height: ev.target.value.trim() }));
+    }
+    const cardMaxHeightInput = this.shadowRoot.getElementById('cfg-card-max-height');
+    if (cardMaxHeightInput) {
+      cardMaxHeightInput.addEventListener('change', (ev) => this._updateConfig({ card_max_height: ev.target.value.trim() }));
+    }
+    const alwaysScrollToggle = this.shadowRoot.getElementById('cfg-always-scroll');
+    if (alwaysScrollToggle) {
+      alwaysScrollToggle.addEventListener('change', (ev) => this._updateConfig({ always_scroll: ev.target.checked }));
     }
     const podiumToggle = this.shadowRoot.getElementById('cfg-show-podium');
     if (podiumToggle) {

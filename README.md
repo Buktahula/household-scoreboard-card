@@ -138,6 +138,12 @@ players:
 | `reset_text` | `string` | `Wochen-Scoreboard zurücksetzen` | Text des Reset-Buttons |
 | `reset_confirm` | `string` | `...` | Bestätigungstext vor dem Reset |
 | `theme` | `string` | *Standard (leer)* | Optional: Spezifisches Home Assistant Theme (z. B. `ios-dark`, `vintage`) erzwingen oder leer lassen für das vom Benutzer gewählte Theme |
+| `card_height` | `string` / `number` | *leer* | Feste Kartenhöhe in Pixeln (z. B. `480px`, `500`). Größere Inhalte werden flüssig vertikal scrollbar (ideal für Google Cast & Nest Hub Küchen-Displays). |
+| `card_max_height` | `string` / `number` | *leer* | Maximale Kartenhöhe (z. B. `500px`). Größere Inhalte werden automatisch scrollbar. |
+| `always_scroll` | `boolean` | `false` | 📜 Scroll-Funktion immer erzwingen (aktiviert immer vertikales Scrollen auf der gesamten Karte, auch bei wenigen Aufgaben). |
+| `compact` | `boolean` | `false` | Kompakter Modus für kleine Bildschirme / Wandtablets / Cast-Displays (spart Platz bei Abständen & Schriften). |
+| `max_tasks` | `number` | `0` | Begrenzt die Aufgabenliste auf die ersten N Aufgaben (0 = alle). |
+| `todo_max_height` | `string` | *leer* | Scrollbare Maximalhöhe nur für die Aufgabenliste (z. B. `300px`). |
 | `levels` | `list` | *Standard-Ränge* | Eigene Ränge und Schwellenwerte (optional) |
 
 ---
