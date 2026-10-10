@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.3.6';
+const CARD_VERSION = '1.4.0';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -1239,25 +1239,62 @@ class HouseholdScoreboardCard extends HTMLElement {
       baseXp = parseInt(xpMatch2[1], 10);
     }
 
-    // 2. Reset interval in days
+    // 2. Reset interval in hours or days
+    // Matches: [alle 6 Stunden], [alle 8h], [reset: 6h], [2x täglich], [3x täglich]
     // Matches: [reset: 3], [reset 3], [alle 3 Tage], [3 Tage], [täglich] (1), [wöchentlich] (7)
+    let resetHours = null;
     let resetDays = null;
-    const resetMatch = fullText.match(/(?:^|[\[\s,;])(?:reset|recur|repeat|intervall|wiederholung)\s*[:=]?\s*(\w+)(?:[\]\s,;]|$)/i);
-    const daysMatch = fullText.match(/(?:^|[\[\s,;])(?:alle\s+)?(\d+)\s*(?:tage|days)(?:[\]\s,;]|$)/i);
-    const dailyMatch = fullText.match(/(?:^|[\[\s,;])(?:daily|taeglich|täglich)(?:[\]\s,;]|$)/i);
-    const weeklyMatch = fullText.match(/(?:^|[\[\s,;])(?:weekly|woechentlich|wöchentlich)(?:[\]\s,;]|$)/i);
+    let resetBadgeLabel = null;
 
-    if (resetMatch) {
-      const val = resetMatch[1].toLowerCase();
-      if (val === 'daily' || val === 'taeglich' || val === 'täglich') resetDays = 1;
-      else if (val === 'weekly' || val === 'woechentlich' || val === 'wöchentlich') resetDays = 7;
-      else if (!isNaN(parseInt(val, 10))) resetDays = parseInt(val, 10);
-    } else if (daysMatch) {
-      resetDays = parseInt(daysMatch[1], 10);
-    } else if (dailyMatch) {
-      resetDays = 1;
-    } else if (weeklyMatch) {
-      resetDays = 7;
+    // Explicit hours
+    const hourMatch = fullText.match(/(?:^|[\[\s,;])(?:alle\s+)?(\d+)\s*(?:stunden|stunde|std|h)(?:[\]\s,;]|$)/i);
+    const resetHourMatch = fullText.match(/(?:^|[\[\s,;])(?:reset|recur|repeat|intervall|wiederholung)\s*[:=]?\s*(\d+)\s*h(?:[\]\s,;]|$)/i);
+    if (hourMatch) {
+      resetHours = parseInt(hourMatch[1], 10);
+      resetBadgeLabel = `Alle ${resetHours} Std.`;
+    } else if (resetHourMatch) {
+      resetHours = parseInt(resetHourMatch[1], 10);
+      resetBadgeLabel = `Alle ${resetHours} Std.`;
+    }
+
+    // Nx täglich
+    if (!resetHours) {
+      const nxMatch = fullText.match(/(?:^|[\[\s,;])(\d+)\s*(?:x|-?mal)\s*(?:täglich|taeglich|daily)(?:[\]\s,;]|$)/i);
+      if (nxMatch) {
+        const n = parseInt(nxMatch[1], 10);
+        resetHours = n === 2 ? 6 : (n === 3 ? 4 : (n === 4 ? 3 : Math.round(24 / n)));
+        resetBadgeLabel = `${n}x täglich`;
+      } else if (/zweimal\s*(?:täglich|taeglich|daily)/i.test(fullText)) {
+        resetHours = 6;
+        resetBadgeLabel = '2x täglich';
+      } else if (/dreimal\s*(?:täglich|taeglich|daily)/i.test(fullText)) {
+        resetHours = 4;
+        resetBadgeLabel = '3x täglich';
+      }
+    }
+
+    // Days intervals
+    if (!resetHours) {
+      const resetMatch = fullText.match(/(?:^|[\[\s,;])(?:reset|recur|repeat|intervall|wiederholung)\s*[:=]?\s*(\w+)(?:[\]\s,;]|$)/i);
+      const daysMatch = fullText.match(/(?:^|[\[\s,;])(?:alle\s+)?(\d+)\s*(?:tage|days)(?:[\]\s,;]|$)/i);
+      const dailyMatch = fullText.match(/(?:^|[\[\s,;])(?:daily|taeglich|täglich)(?:[\]\s,;]|$)/i);
+      const weeklyMatch = fullText.match(/(?:^|[\[\s,;])(?:weekly|woechentlich|wöchentlich)(?:[\]\s,;]|$)/i);
+
+      if (resetMatch) {
+        const val = resetMatch[1].toLowerCase();
+        if (val === 'daily' || val === 'taeglich' || val === 'täglich') resetDays = 1;
+        else if (val === 'weekly' || val === 'woechentlich' || val === 'wöchentlich') resetDays = 7;
+        else if (!isNaN(parseInt(val, 10))) resetDays = parseInt(val, 10);
+      } else if (daysMatch) {
+        resetDays = parseInt(daysMatch[1], 10);
+      } else if (dailyMatch) {
+        resetDays = 1;
+      } else if (weeklyMatch) {
+        resetDays = 7;
+      }
+
+      if (resetDays === 1) resetBadgeLabel = 'Täglich';
+      else if (resetDays) resetBadgeLabel = `Alle ${resetDays} Tage`;
     }
 
     // 3. Bonus per day overdue
@@ -1273,7 +1310,8 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     // 4. Last done timestamp
     const doneMatch = fullText.match(/(?:^|[\[\s,;])(?:done|last_done|erledigt)\s*[:=]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|\d{1,2}\.\d{1,2}\.(?:\d{4})?)(?:[\]\s,;]|$)/i);
-    const lastDone = doneMatch ? this._normalizeDate(doneMatch[1]) : null;
+    const nativeCompleted = item.completed || item.completed_at;
+    const lastDone = doneMatch ? this._normalizeDate(doneMatch[1]) : (nativeCompleted ? String(nativeCompleted).split('T')[0] : null);
 
     // 5. Due date resolution (HA native due date or tag: [fällig: ...], [due: ...], [bis: ...])
     const dueTagMatch = fullText.match(/(?:^|[\[\s,;])(?:due|faellig|fällig|bis)\s*[:=]?\s*([^\s\]]+)(?:[\]\s,;]|$)/i);
@@ -1336,7 +1374,7 @@ class HouseholdScoreboardCard extends HTMLElement {
     const cleanTags = (t) => {
       if (!t) return '';
       return t
-        .replace(/\[\s*(?:\d+\s*(?:xp|punkte|points)|xp|punkte|points|reset|recur|repeat|intervall|wiederholung|tage|days|alle|daily|taeglich|täglich|weekly|woechentlich|wöchentlich|bonus|kopfgeld|escalate|bounty|plus|\+\d+|done|last_done|erledigt|due|faellig|fällig|bis|icon|cat|kategorie|category)[^\]]*\]/gi, '')
+        .replace(/\[\s*(?:\d+\s*(?:xp|punkte|points|x|-?mal)|xp|punkte|points|reset|recur|repeat|intervall|wiederholung|tage|days|alle|stunden|stunde|std|daily|taeglich|täglich|weekly|woechentlich|wöchentlich|bonus|kopfgeld|escalate|bounty|plus|\+\d+|done|last_done|erledigt|due|faellig|fällig|bis|icon|cat|kategorie|category)[^\]]*\]/gi, '')
         .replace(/(?:^|\n)\s*(?:xp|punkte|points|reset|recur|repeat|intervall|wiederholung|tage|days|bonus|kopfgeld|escalate|bounty|plus|done|last_done|erledigt|due|faellig|fällig|bis|icon|cat|kategorie|category)\s*[:=].*$/gim, '')
         .replace(/\s+/g, ' ')
         .trim();
@@ -1347,7 +1385,9 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     return {
       baseXp,
+      resetHours,
       resetDays,
+      resetBadgeLabel,
       bonusPerDay,
       lastDone,
       effectiveDueDate,
@@ -1377,7 +1417,28 @@ class HouseholdScoreboardCard extends HTMLElement {
       for (const item of this._todoItems) {
         if (item.status === 'completed') {
           const meta = this._parseTodoMetadata(item);
-          if (meta.resetDays && meta.lastDone) {
+          const compRaw = item.completed || item.completed_at;
+
+          if (meta.resetHours && compRaw) {
+            const compDate = new Date(compRaw);
+            const diffHours = (now.getTime() - compDate.getTime()) / (1000 * 60 * 60);
+
+            if (diffHours >= meta.resetHours) {
+              resetCount++;
+              const itemId = item.uid || item.id || item.summary;
+              if (itemId) {
+                await this._hass.callWS({
+                  type: 'todo/item/update',
+                  entity_id: this._config.todo_entity,
+                  item: itemId,
+                  status: 'needs_action',
+                  due_date: todayStr
+                });
+              }
+              item.status = 'needs_action';
+              item.due = todayStr;
+            }
+          } else if (meta.resetDays && meta.lastDone) {
             const [y, m, d] = meta.lastDone.split('-').map(Number);
             const lastDoneDate = new Date(y, m - 1, d);
             const diffDays = Math.floor((today.getTime() - lastDoneDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -1467,9 +1528,8 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
       }
 
-      if (meta.resetDays) {
-        const resetLabel = meta.resetDays === 1 ? 'Täglich' : `Alle ${meta.resetDays} Tage`;
-        badgesHtml += `<span class="todo-pill badge-reset" title="Wiederholt sich alle ${meta.resetDays} Tage">🔄 ${resetLabel}</span>`;
+      if (meta.resetBadgeLabel) {
+        badgesHtml += `<span class="todo-pill badge-reset" title="Wiederholt sich: ${meta.resetBadgeLabel}">🔄 ${meta.resetBadgeLabel}</span>`;
       }
 
       if (meta.overdueDays > 0) {
@@ -1669,6 +1729,7 @@ class HouseholdScoreboardCard extends HTMLElement {
 
       // Optimistically update local item state
       item.status = 'completed';
+      item.completed = now.toISOString();
       this._updateTodoSection();
 
       // 7. Call Home Assistant API to mark completed and update description

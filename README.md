@@ -155,7 +155,7 @@ Du kannst Tags entweder direkt im **Aufgabentitel** (z. B. beim schnellen Hinzuf
 | **XP / Punkte** | Basis-Belohnung (Standard: 10 XP) | `[xp: 25]`, `[25 xp]`, `xp: 25`, `[punkte: 20]`, `[20 punkte]` |
 | **Fälligkeit** | Fälligkeitsdatum | `[fällig: morgen]`, `[fällig: heute]`, `[fällig: 15.10.2026]`, `[due: 2026-10-15]` *(oder natives HA-Fälligkeitsdatum)* |
 | **Kopfgeld (Bonus)** | Zusätzliche XP pro Tag bei Überfälligkeit | `[bonus: +10]`, `[bonus: 10]`, `[+10/Tag]`, `[kopfgeld: 10]`, `bonus: +5` |
-| **Wiederholung** | Automatischer Reset nach N Tagen | `[täglich]`, `[reset: 1]`, `[alle 3 Tage]`, `[wöchentlich]`, `[reset: 7]` |
+| **Wiederholung** | Automatischer Reset (Tage, mehrfach täglich oder Stunden) | `[täglich]`, `[2x täglich]`, `[alle 6 Stunden]`, `[alle 3 Tage]`, `[wöchentlich]`, `[reset: 8h]` |
 | **Icon** | Manuelles Emoji-Icon für die Aufgabe | `[icon: 🍕]`, `[icon: 🧹]`, `icon: 🧺` |
 | **Kategorie** | Manuelle Kategorie für Farb-Akzent | `[cat: kueche]`, `[cat: muell]`, `[cat: bad]` |
 
