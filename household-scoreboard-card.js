@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.4.0';
+const CARD_VERSION = '1.4.1';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -306,6 +306,141 @@ class HouseholdScoreboardCard extends HTMLElement {
       } else {
         todoSection.classList.remove('force-scroll');
       }
+      this._setupTouchScroll(todoSection);
+    }
+
+    setTimeout(() => this._updateScrollButtons(), 40);
+  }
+
+  _setupTouchScroll(todoSection) {
+    if (!todoSection || todoSection._hasTouchScroll) return;
+    todoSection._hasTouchScroll = true;
+
+    let isDown = false;
+    let startX = 0;
+    let startY = 0;
+    let initialScrollTop = 0;
+    let moved = false;
+    const dragThreshold = 5;
+
+    const getRotation = () => {
+      let el = todoSection;
+      while (el) {
+        if (el.nodeType === 1) {
+          const style = window.getComputedStyle(el);
+          const tr = style.transform || style.webkitTransform;
+          if (tr && tr !== 'none') {
+            const m = tr.match(/matrix\(([^)]+)\)/);
+            if (m) {
+              const parts = m[1].split(',').map(parseFloat);
+              const a = parts[0];
+              const b = parts[1];
+              const angle = Math.round(Math.atan2(b, a) * (180 / Math.PI));
+              return (angle < 0) ? angle + 360 : angle;
+            }
+          }
+        }
+        el = el.parentElement || (el.getRootNode && el.getRootNode().host);
+      }
+      return 0;
+    };
+
+    const onPointerDown = (e) => {
+      if (e.target.closest('button, input, a, .todo-check-btn, .todo-roulette-mini-btn, .todo-scroll-btn')) return;
+      isDown = true;
+      moved = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      initialScrollTop = todoSection.scrollTop;
+    };
+
+    const onPointerMove = (e) => {
+      if (!isDown) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      if (Math.abs(dx) > dragThreshold || Math.abs(dy) > dragThreshold) {
+        moved = true;
+      }
+
+      const rot = getRotation();
+      let scrollDelta = 0;
+
+      if (rot === 90) {
+        // Rotated 90deg clockwise: Visual UP corresponds to physical +X
+        scrollDelta = dx;
+      } else if (rot === 270) {
+        scrollDelta = -dx;
+      } else if (rot === 180) {
+        scrollDelta = dy;
+      } else {
+        // Normal 0deg: Visual UP corresponds to physical -Y
+        scrollDelta = -dy;
+      }
+
+      todoSection.scrollTop = initialScrollTop + scrollDelta;
+    };
+
+    const onPointerUp = (e) => {
+      if (!isDown) return;
+      isDown = false;
+      if (moved) {
+        const preventClick = (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+        };
+        todoSection.addEventListener('click', preventClick, { capture: true, once: true });
+        setTimeout(() => {
+          todoSection.removeEventListener('click', preventClick, { capture: true });
+        }, 120);
+      }
+    };
+
+    todoSection.addEventListener('pointerdown', onPointerDown, { passive: true });
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerup', onPointerUp, { passive: true });
+    window.addEventListener('pointercancel', onPointerUp, { passive: true });
+
+    todoSection.addEventListener('wheel', (e) => {
+      const rot = getRotation();
+      if (rot === 90 || rot === 270) {
+        const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        todoSection.scrollTop += delta;
+      }
+    }, { passive: true });
+  }
+
+  _updateScrollButtons() {
+    if (!this.shadowRoot) return;
+    const todoSection = this.shadowRoot.getElementById('todo-section');
+    const upBtn = this.shadowRoot.getElementById('todo-scroll-up-btn');
+    const downBtn = this.shadowRoot.getElementById('todo-scroll-down-btn');
+    if (!todoSection || !upBtn || !downBtn) return;
+
+    const hasOverflow = todoSection.scrollHeight > (todoSection.clientHeight + 4);
+    const alwaysScroll = this._config && (this._config.always_scroll === true || this._config.always_scroll === 'true');
+
+    if (hasOverflow || alwaysScroll) {
+      upBtn.style.display = 'inline-flex';
+      downBtn.style.display = 'inline-flex';
+
+      const atTop = todoSection.scrollTop <= 2;
+      const atBottom = Math.ceil(todoSection.scrollTop + todoSection.clientHeight) >= (todoSection.scrollHeight - 2);
+
+      if (atTop) {
+        upBtn.setAttribute('disabled', '');
+      } else {
+        upBtn.removeAttribute('disabled');
+      }
+
+      if (atBottom) {
+        downBtn.setAttribute('disabled', '');
+      } else {
+        downBtn.removeAttribute('disabled');
+      }
+    } else {
+      upBtn.style.display = 'none';
+      downBtn.style.display = 'none';
     }
   }
 
@@ -1586,6 +1721,8 @@ class HouseholdScoreboardCard extends HTMLElement {
     });
 
     this._applyCardDimensions();
+    this._updateScrollButtons();
+    setTimeout(() => this._updateScrollButtons(), 50);
   }
 
   _promptTaskCompletion(item, meta) {
@@ -2335,7 +2472,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           overflow-y: auto;
           overflow-x: hidden;
           -webkit-overflow-scrolling: touch;
-          touch-action: pan-y;
+          touch-action: pan-x pan-y;
+          user-select: none;
+          -webkit-user-select: none;
           overscroll-behavior-y: contain;
           scrollbar-width: thin;
           scrollbar-color: var(--scoreboard-scrollbar-thumb, rgba(127, 127, 127, 0.35)) transparent;
@@ -2775,7 +2914,44 @@ class HouseholdScoreboardCard extends HTMLElement {
         .todo-header-right {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 6px;
+        }
+        .todo-scroll-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.12));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
+          color: var(--primary-text-color, inherit);
+          border-radius: 8px;
+          width: 28px;
+          height: 28px;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          user-select: none;
+          touch-action: manipulation;
+          flex-shrink: 0;
+          padding: 0;
+        }
+        .todo-scroll-btn:hover {
+          background: var(--primary-color, rgba(68, 138, 255, 0.25));
+          border-color: var(--primary-color, rgba(68, 138, 255, 0.5));
+          transform: translateY(-1px);
+        }
+        .todo-scroll-btn:active {
+          transform: scale(0.92);
+        }
+        .todo-scroll-btn[disabled] {
+          opacity: 0.25;
+          pointer-events: none;
+        }
+        :host([compact]) .todo-scroll-btn {
+          width: 24px;
+          height: 24px;
+          font-size: 10px;
+          border-radius: 6px;
         }
         .todo-roulette-btn {
           display: inline-flex;
@@ -3221,6 +3397,8 @@ class HouseholdScoreboardCard extends HTMLElement {
               <button id="roulette-header-btn" class="todo-roulette-btn" title="Aufgaben-Roulette: Wer ist dran?">
                 <span>🎲</span> Wer ist dran?
               </button>
+              <button id="todo-scroll-up-btn" class="todo-scroll-btn" title="Nach oben scrollen" style="display: none;">▲</button>
+              <button id="todo-scroll-down-btn" class="todo-scroll-btn" title="Nach unten scrollen" style="display: none;">▼</button>
               <span id="todo-counter-badge" class="todo-counter-badge"></span>
             </div>
           </div>
@@ -3302,6 +3480,26 @@ class HouseholdScoreboardCard extends HTMLElement {
     if (modal) modal.addEventListener('click', (e) => {
       if (e.target === modal) this._closePlayerModal();
     });
+    const todoSection = this.shadowRoot.getElementById('todo-section');
+    const scrollUpBtn = this.shadowRoot.getElementById('todo-scroll-up-btn');
+    const scrollDownBtn = this.shadowRoot.getElementById('todo-scroll-down-btn');
+    if (scrollUpBtn) {
+      scrollUpBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (todoSection) todoSection.scrollBy({ top: -140, behavior: 'smooth' });
+      });
+    }
+    if (scrollDownBtn) {
+      scrollDownBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (todoSection) todoSection.scrollBy({ top: 140, behavior: 'smooth' });
+      });
+    }
+    if (todoSection) {
+      this._setupTouchScroll(todoSection);
+      todoSection.addEventListener('scroll', () => this._updateScrollButtons());
+    }
+
     this._updateData();
   }
 
