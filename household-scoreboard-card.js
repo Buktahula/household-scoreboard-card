@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.4.1';
+const CARD_VERSION = '1.4.2';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -208,6 +208,7 @@ class HouseholdScoreboardCard extends HTMLElement {
       todo_title: '📋 Aufgaben & Quests',
       card_height: '',
       card_max_height: '',
+      todo_max_height: '',
       always_scroll: false,
       compact: false,
       show_streaks: true,
@@ -261,10 +262,12 @@ class HouseholdScoreboardCard extends HTMLElement {
 
     const rawHeight = this._config.card_height || this._config.height;
     const rawMaxHeight = this._config.card_max_height || this._config.max_height;
+    const rawTodoMaxHeight = this._config.todo_max_height || this._config.tasks_max_height;
     const alwaysScroll = this._config.always_scroll === true || this._config.always_scroll === 'true';
 
     const height = this._formatDimension(rawHeight);
     const maxHeight = this._formatDimension(rawMaxHeight);
+    const todoMaxHeight = this._formatDimension(rawTodoMaxHeight);
 
     if (height) {
       card.style.height = height;
@@ -294,6 +297,20 @@ class HouseholdScoreboardCard extends HTMLElement {
       this.setAttribute('has-card-height', '');
     } else {
       this.removeAttribute('has-card-height');
+    }
+
+    if (todoMaxHeight) {
+      this.style.setProperty('--todo-max-height', todoMaxHeight);
+      this.setAttribute('has-todo-max-height', '');
+      if (todoSection) {
+        todoSection.style.maxHeight = todoMaxHeight;
+      }
+    } else {
+      this.style.removeProperty('--todo-max-height');
+      this.removeAttribute('has-todo-max-height');
+      if (todoSection) {
+        todoSection.style.maxHeight = '';
+      }
     }
 
     card.classList.remove('scrollable');
@@ -1633,7 +1650,13 @@ class HouseholdScoreboardCard extends HTMLElement {
       todoCounterBadge.style.display = items.length > 0 ? 'inline-block' : 'none';
     }
 
-    todoSection.style.maxHeight = '';
+    const rawTodoMaxHeight = this._config.todo_max_height || this._config.tasks_max_height;
+    const todoMaxHeight = this._formatDimension(rawTodoMaxHeight);
+    if (todoMaxHeight) {
+      todoSection.style.maxHeight = todoMaxHeight;
+    } else {
+      todoSection.style.maxHeight = '';
+    }
     todoSection.style.overflowY = '';
 
     if (items.length === 0) {
@@ -2468,7 +2491,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           display: flex;
           flex-direction: column;
           gap: 8px;
-          max-height: 320px;
+          max-height: var(--todo-max-height, 320px);
           overflow-y: auto;
           overflow-x: hidden;
           -webkit-overflow-scrolling: touch;
@@ -2477,34 +2500,42 @@ class HouseholdScoreboardCard extends HTMLElement {
           -webkit-user-select: none;
           overscroll-behavior-y: contain;
           scrollbar-width: thin;
-          scrollbar-color: var(--scoreboard-scrollbar-thumb, rgba(127, 127, 127, 0.35)) transparent;
-          padding-right: 4px;
+          scrollbar-color: var(--scoreboard-scrollbar-thumb, var(--primary-color, #448aff)) var(--scoreboard-scrollbar-track, rgba(127, 127, 127, 0.15));
+          scrollbar-gutter: stable;
+          padding-right: 6px;
         }
         :host([compact]) .todo-list {
-          max-height: 240px;
+          max-height: var(--todo-max-height, 240px);
           gap: 5px;
-          padding-right: 3px;
+          padding-right: 4px;
         }
         :host([has-card-height]) .todo-list {
           max-height: none;
           flex: 1 1 auto;
           min-height: 0;
         }
+        :host([has-card-height][has-todo-max-height]) .todo-list,
+        :host([has-todo-max-height]) .todo-list {
+          flex: 0 1 auto !important;
+          max-height: var(--todo-max-height, 360px) !important;
+        }
         .todo-list.force-scroll {
           overflow-y: scroll !important;
         }
         .todo-list::-webkit-scrollbar {
-          width: 5px;
+          width: 8px;
         }
         .todo-list::-webkit-scrollbar-track {
-          background: transparent;
+          background: var(--scoreboard-scrollbar-track, rgba(127, 127, 127, 0.15));
+          border-radius: 8px;
         }
         .todo-list::-webkit-scrollbar-thumb {
-          background: var(--scoreboard-scrollbar-thumb, rgba(127, 127, 127, 0.35));
-          border-radius: 4px;
+          background: var(--scoreboard-scrollbar-thumb, var(--primary-color, #448aff));
+          border-radius: 8px;
+          border: 1px solid var(--ha-card-background, var(--card-background-color, transparent));
         }
         .todo-list::-webkit-scrollbar-thumb:hover {
-          background: var(--scoreboard-scrollbar-thumb-hover, rgba(127, 127, 127, 0.6));
+          background: var(--scoreboard-scrollbar-thumb-hover, #2979ff);
         }
         .todo-card {
           flex: 0 0 auto;
@@ -3735,6 +3766,7 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       allow_decrement: true,
       card_height: '',
       card_max_height: '',
+      todo_max_height: '',
       always_scroll: false,
       compact: false,
       players: [],
@@ -4488,6 +4520,12 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
             <div class="field-hint">Begrenzt die Gesamthöhe der Karte nach oben hin. Die Aufgaben-Sektion wird automatisch scrollbar.</div>
           </div>
 
+          <div class="form-group">
+            <label class="form-label">Maximale Aufgaben-Listenhöhe (z. B. 360px)</label>
+            <input type="text" class="hsc-input" id="cfg-todo-max-height" value="${this._config.todo_max_height || this._config.tasks_max_height || ''}" placeholder="z. B. 360px (optional)" />
+            <div class="field-hint">Begrenzt gezielt die Höhe der Aufgabenliste, sodass bei längeren Listen ein sauberer Scrollbalken und Scroll-Pfeile erscheinen.</div>
+          </div>
+
           <div class="toggle-row">
             <div class="toggle-info">
               <div class="toggle-title">📜 Scrollfunktion immer erzwingen</div>
@@ -4721,6 +4759,10 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const cardMaxHeightInput = this.shadowRoot.getElementById('cfg-card-max-height');
     if (cardMaxHeightInput) {
       cardMaxHeightInput.addEventListener('change', (ev) => this._updateConfig({ card_max_height: ev.target.value.trim() }));
+    }
+    const todoMaxHeightInput = this.shadowRoot.getElementById('cfg-todo-max-height');
+    if (todoMaxHeightInput) {
+      todoMaxHeightInput.addEventListener('change', (ev) => this._updateConfig({ todo_max_height: ev.target.value.trim() }));
     }
     const alwaysScrollToggle = this.shadowRoot.getElementById('cfg-always-scroll');
     if (alwaysScrollToggle) {
