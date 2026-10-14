@@ -44,11 +44,14 @@ jobs:
           # Delete existing draft/release for this tag if it exists
           gh release delete "$TAG" --yes 2>/dev/null || true
           
-          if ! gh release create "$TAG" \
+          OUTPUT=$(gh release create "$TAG" \
             household-scoreboard-card.js \
             dist/household-scoreboard-card.js \
             --title "$TITLE" \
-            --generate-notes; then
-            echo "::error::Release creation failed. Check if 'Read and write permissions' are enabled under Settings -> Actions -> General -> Workflow permissions."
-            exit 1
+            --generate-notes 2>&1) || ERR=$?
+            
+          if [ -n "$ERR" ]; then
+            echo "GH Output: $OUTPUT"
+            echo "::error::gh release create failed: $OUTPUT"
+            exit $ERR
           fi
