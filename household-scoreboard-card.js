@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.4.3';
+const CARD_VERSION = '1.4.4';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -273,9 +273,9 @@ class HouseholdScoreboardCard extends HTMLElement {
       card.style.height = height;
       if (height === '100%') {
         this.style.height = '100%';
-        this.style.flex = '1 1 auto';
+        this.style.flex = '1 1 0px';
         this.style.minHeight = '0';
-        card.style.flex = '1 1 auto';
+        card.style.flex = '1 1 0px';
         card.style.minHeight = '0';
       } else {
         this.style.height = '';
@@ -345,27 +345,35 @@ class HouseholdScoreboardCard extends HTMLElement {
     let initialScrollTop = 0;
     let moved = false;
     const dragThreshold = 5;
+    let vUpX = 0;
+    let vUpY = -1;
 
-    const getRotation = () => {
-      let el = todoSection;
-      while (el) {
-        if (el.nodeType === 1) {
-          const style = window.getComputedStyle(el);
-          const tr = style.transform || style.webkitTransform;
-          if (tr && tr !== 'none') {
-            const m = tr.match(/matrix\(([^)]+)\)/);
-            if (m) {
-              const parts = m[1].split(',').map(parseFloat);
-              const a = parts[0];
-              const b = parts[1];
-              const angle = Math.round(Math.atan2(b, a) * (180 / Math.PI));
-              return (angle < 0) ? angle + 360 : angle;
-            }
-          }
+    if (window.ResizeObserver) {
+      try {
+        const ro = new ResizeObserver(() => {
+          this._updateScrollButtons();
+        });
+        ro.observe(todoSection);
+      } catch (e) {}
+    }
+
+    // Determine the exact orientation of "visual up" in screen coordinates
+    const calcVisualUpVector = () => {
+      const headerEl = this.shadowRoot ? this.shadowRoot.querySelector('.todo-header') : null;
+      if (headerEl && todoSection) {
+        const hRect = headerEl.getBoundingClientRect();
+        const sRect = todoSection.getBoundingClientRect();
+        const dxDown = sRect.left - hRect.left;
+        const dyDown = sRect.top - hRect.top;
+        const dist = Math.hypot(dxDown, dyDown);
+        if (dist > 2) {
+          vUpX = -dxDown / dist;
+          vUpY = -dyDown / dist;
+          return;
         }
-        el = el.parentElement || (el.getRootNode && el.getRootNode().host);
       }
-      return 0;
+      vUpX = 0;
+      vUpY = -1;
     };
 
     const onPointerDown = (e) => {
@@ -375,6 +383,13 @@ class HouseholdScoreboardCard extends HTMLElement {
       startX = e.clientX;
       startY = e.clientY;
       initialScrollTop = todoSection.scrollTop;
+      calcVisualUpVector();
+
+      try {
+        if (todoSection.setPointerCapture) {
+          todoSection.setPointerCapture(e.pointerId);
+        }
+      } catch (err) {}
     };
 
     const onPointerMove = (e) => {
@@ -386,27 +401,19 @@ class HouseholdScoreboardCard extends HTMLElement {
         moved = true;
       }
 
-      const rot = getRotation();
-      let scrollDelta = 0;
-
-      if (rot === 90) {
-        // Rotated 90deg clockwise: Visual UP corresponds to physical +X
-        scrollDelta = dx;
-      } else if (rot === 270) {
-        scrollDelta = -dx;
-      } else if (rot === 180) {
-        scrollDelta = dy;
-      } else {
-        // Normal 0deg: Visual UP corresponds to physical -Y
-        scrollDelta = -dy;
-      }
-
-      todoSection.scrollTop = initialScrollTop + scrollDelta;
+      const deltaScroll = dx * vUpX + dy * vUpY;
+      todoSection.scrollTop = initialScrollTop + deltaScroll;
     };
 
     const onPointerUp = (e) => {
       if (!isDown) return;
       isDown = false;
+      try {
+        if (todoSection.hasPointerCapture && todoSection.hasPointerCapture(e.pointerId)) {
+          todoSection.releasePointerCapture(e.pointerId);
+        }
+      } catch (err) {}
+
       if (moved) {
         const preventClick = (ev) => {
           ev.stopPropagation();
@@ -415,20 +422,51 @@ class HouseholdScoreboardCard extends HTMLElement {
         todoSection.addEventListener('click', preventClick, { capture: true, once: true });
         setTimeout(() => {
           todoSection.removeEventListener('click', preventClick, { capture: true });
-        }, 120);
+        }, 150);
       }
     };
 
-    todoSection.addEventListener('pointerdown', onPointerDown, { passive: true });
-    window.addEventListener('pointermove', onPointerMove, { passive: true });
-    window.addEventListener('pointerup', onPointerUp, { passive: true });
-    window.addEventListener('pointercancel', onPointerUp, { passive: true });
+    todoSection.addEventListener('pointerdown', onPointerDown);
+    todoSection.addEventListener('pointermove', onPointerMove);
+    todoSection.addEventListener('pointerup', onPointerUp);
+    todoSection.addEventListener('pointercancel', onPointerUp);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+
+    // Progressive touch fallback
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchScrollTop = 0;
+
+    todoSection.addEventListener('touchstart', (e) => {
+      if (isDown) return;
+      if (e.target.closest('button, input, a, .todo-check-btn, .todo-roulette-mini-btn, .todo-scroll-btn')) return;
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+      touchScrollTop = todoSection.scrollTop;
+      calcVisualUpVector();
+    }, { passive: true });
+
+    todoSection.addEventListener('touchmove', (e) => {
+      if (isDown) return;
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - touchStartX;
+      const dy = t.clientY - touchStartY;
+      const deltaScroll = dx * vUpX + dy * vUpY;
+      todoSection.scrollTop = touchScrollTop + deltaScroll;
+    }, { passive: true });
 
     todoSection.addEventListener('wheel', (e) => {
-      const rot = getRotation();
-      if (rot === 90 || rot === 270) {
+      calcVisualUpVector();
+      if (Math.abs(vUpX) > 0.5) {
         const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
         todoSection.scrollTop += delta;
+      } else {
+        todoSection.scrollTop += e.deltaY;
       }
     }, { passive: true });
   }
@@ -2021,10 +2059,12 @@ class HouseholdScoreboardCard extends HTMLElement {
           display: flex;
           flex-direction: column;
           min-height: 0;
+          flex: 1 1 0px;
         }
         :host([has-card-height]) ha-card {
-          flex: 1 1 auto;
+          flex: 1 1 0px;
           min-height: 0;
+          height: 100%;
         }
         ha-card {
           position: relative;
@@ -2501,7 +2541,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           overflow-y: auto;
           overflow-x: hidden;
           -webkit-overflow-scrolling: touch;
-          touch-action: pan-x pan-y;
+          touch-action: none !important;
           user-select: none;
           -webkit-user-select: none;
           overscroll-behavior-y: contain;
