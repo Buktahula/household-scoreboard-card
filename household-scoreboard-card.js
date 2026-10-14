@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.4.4';
+const CARD_VERSION = '1.4.5';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -273,9 +273,9 @@ class HouseholdScoreboardCard extends HTMLElement {
       card.style.height = height;
       if (height === '100%') {
         this.style.height = '100%';
-        this.style.flex = '1 1 0px';
+        this.style.flex = '1 1 auto';
         this.style.minHeight = '0';
-        card.style.flex = '1 1 0px';
+        card.style.flex = '1 1 auto';
         card.style.minHeight = '0';
       } else {
         this.style.height = '';
@@ -2059,10 +2059,11 @@ class HouseholdScoreboardCard extends HTMLElement {
           display: flex;
           flex-direction: column;
           min-height: 0;
-          flex: 1 1 0px;
+          height: 100%;
+          flex: 1 1 auto;
         }
         :host([has-card-height]) ha-card {
-          flex: 1 1 0px;
+          flex: 1 1 auto;
           min-height: 0;
           height: 100%;
         }
