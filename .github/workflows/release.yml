@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Determine tag
         id: vars
@@ -31,16 +33,22 @@ jobs:
             echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.vars.outputs.tag }}
-          name: "${{ steps.vars.outputs.tag }} - Household Scoreboard Card"
-          files: |
-            household-scoreboard-card.js
-            dist/household-scoreboard-card.js
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+      - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+          TITLE="${TAG} - Household Scoreboard Card"
+          echo "Creating release for $TAG ($TITLE)..."
+          
+          # Delete existing draft/release for this tag if it exists
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          
+          if ! gh release create "$TAG" \
+            household-scoreboard-card.js \
+            dist/household-scoreboard-card.js \
+            --title "$TITLE" \
+            --generate-notes; then
+            echo "::error::Release creation failed. Check if 'Read and write permissions' are enabled under Settings -> Actions -> General -> Workflow permissions."
+            exit 1
+          fi
