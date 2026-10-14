@@ -45,7 +45,6 @@ jobs:
           gh release delete "$TAG" --yes 2>/dev/null || true
           
           OUTPUT=$(gh release create "$TAG" \
-            household-scoreboard-card.js \
             dist/household-scoreboard-card.js \
             --title "$TITLE" \
             --generate-notes 2>&1) || ERR=$?
@@ -55,3 +54,5 @@ jobs:
             echo "::error::gh release create failed: $OUTPUT"
             exit $ERR
           fi
+          
+          echo "Release $TAG created successfully!"
