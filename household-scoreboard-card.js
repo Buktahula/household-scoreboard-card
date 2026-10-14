@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.4.2';
+const CARD_VERSION = '1.4.3';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -275,16 +275,22 @@ class HouseholdScoreboardCard extends HTMLElement {
         this.style.height = '100%';
         this.style.flex = '1 1 auto';
         this.style.minHeight = '0';
+        card.style.flex = '1 1 auto';
+        card.style.minHeight = '0';
       } else {
         this.style.height = '';
         this.style.flex = '';
         this.style.minHeight = '';
+        card.style.flex = '';
+        card.style.minHeight = '';
       }
     } else {
       card.style.height = '';
       this.style.height = '';
       this.style.flex = '';
       this.style.minHeight = '';
+      card.style.flex = '';
+      card.style.minHeight = '';
     }
 
     if (maxHeight) {
@@ -2451,11 +2457,11 @@ class HouseholdScoreboardCard extends HTMLElement {
           min-height: 0;
         }
         :host([has-card-height]) #todo-wrapper {
-          flex: 1 1 auto;
-          min-height: 0;
+          flex: 1 1 auto !important;
+          min-height: 0 !important;
           overflow: hidden;
           margin-top: 12px;
-          margin-bottom: 6px;
+          margin-bottom: 4px;
         }
         .todo-header {
           flex: 0 0 auto;
@@ -2510,9 +2516,9 @@ class HouseholdScoreboardCard extends HTMLElement {
           padding-right: 4px;
         }
         :host([has-card-height]) .todo-list {
-          max-height: none;
-          flex: 1 1 auto;
-          min-height: 0;
+          max-height: none !important;
+          flex: 1 1 auto !important;
+          min-height: 0 !important;
         }
         :host([has-card-height][has-todo-max-height]) .todo-list,
         :host([has-todo-max-height]) .todo-list {
@@ -2524,6 +2530,7 @@ class HouseholdScoreboardCard extends HTMLElement {
         }
         .todo-list::-webkit-scrollbar {
           width: 8px;
+          display: block !important;
         }
         .todo-list::-webkit-scrollbar-track {
           background: var(--scoreboard-scrollbar-track, rgba(127, 127, 127, 0.15));
@@ -2533,6 +2540,7 @@ class HouseholdScoreboardCard extends HTMLElement {
           background: var(--scoreboard-scrollbar-thumb, var(--primary-color, #448aff));
           border-radius: 8px;
           border: 1px solid var(--ha-card-background, var(--card-background-color, transparent));
+          min-height: 36px;
         }
         .todo-list::-webkit-scrollbar-thumb:hover {
           background: var(--scoreboard-scrollbar-thumb-hover, #2979ff);
