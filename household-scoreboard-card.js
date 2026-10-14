@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.4.5';
+const CARD_VERSION = '1.4.6';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -210,6 +210,7 @@ class HouseholdScoreboardCard extends HTMLElement {
       card_max_height: '',
       todo_max_height: '',
       always_scroll: false,
+      show_scroll_buttons: true,
       compact: false,
       show_streaks: true,
       show_task_icons: true,
@@ -476,32 +477,41 @@ class HouseholdScoreboardCard extends HTMLElement {
     const todoSection = this.shadowRoot.getElementById('todo-section');
     const upBtn = this.shadowRoot.getElementById('todo-scroll-up-btn');
     const downBtn = this.shadowRoot.getElementById('todo-scroll-down-btn');
-    if (!todoSection || !upBtn || !downBtn) return;
+    if (!upBtn || !downBtn) return;
 
-    const hasOverflow = todoSection.scrollHeight > (todoSection.clientHeight + 4);
-    const alwaysScroll = this._config && (this._config.always_scroll === true || this._config.always_scroll === 'true');
+    const showButtons = this._config && (
+      this._config.show_scroll_buttons !== false &&
+      this._config.scroll_buttons !== false
+    );
 
-    if (hasOverflow || alwaysScroll) {
-      upBtn.style.display = 'inline-flex';
-      downBtn.style.display = 'inline-flex';
-
-      const atTop = todoSection.scrollTop <= 2;
-      const atBottom = Math.ceil(todoSection.scrollTop + todoSection.clientHeight) >= (todoSection.scrollHeight - 2);
-
-      if (atTop) {
-        upBtn.setAttribute('disabled', '');
-      } else {
-        upBtn.removeAttribute('disabled');
-      }
-
-      if (atBottom) {
-        downBtn.setAttribute('disabled', '');
-      } else {
-        downBtn.removeAttribute('disabled');
-      }
-    } else {
+    if (!showButtons) {
       upBtn.style.display = 'none';
       downBtn.style.display = 'none';
+      return;
+    }
+
+    upBtn.style.display = 'inline-flex';
+    downBtn.style.display = 'inline-flex';
+
+    if (!todoSection) return;
+
+    const atTop = todoSection.scrollTop <= 2;
+    const atBottom = Math.ceil(todoSection.scrollTop + todoSection.clientHeight) >= (todoSection.scrollHeight - 2);
+
+    if (atTop) {
+      upBtn.classList.add('disabled');
+      upBtn.setAttribute('disabled', '');
+    } else {
+      upBtn.classList.remove('disabled');
+      upBtn.removeAttribute('disabled');
+    }
+
+    if (atBottom && todoSection.scrollHeight > (todoSection.clientHeight + 4)) {
+      downBtn.classList.add('disabled');
+      downBtn.setAttribute('disabled', '');
+    } else {
+      downBtn.classList.remove('disabled');
+      downBtn.removeAttribute('disabled');
     }
   }
 
@@ -3000,13 +3010,13 @@ class HouseholdScoreboardCard extends HTMLElement {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          background: var(--secondary-background-color, rgba(127, 127, 127, 0.12));
-          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
+          background: var(--secondary-background-color, rgba(127, 127, 127, 0.16));
+          border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.35));
           color: var(--primary-text-color, inherit);
           border-radius: 8px;
-          width: 28px;
-          height: 28px;
-          font-size: 11px;
+          width: 32px;
+          height: 32px;
+          font-size: 13px;
           font-weight: 700;
           cursor: pointer;
           transition: all 0.15s ease;
@@ -3014,23 +3024,28 @@ class HouseholdScoreboardCard extends HTMLElement {
           touch-action: manipulation;
           flex-shrink: 0;
           padding: 0;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
         }
         .todo-scroll-btn:hover {
-          background: var(--primary-color, rgba(68, 138, 255, 0.25));
-          border-color: var(--primary-color, rgba(68, 138, 255, 0.5));
+          background: var(--primary-color, rgba(68, 138, 255, 0.35));
+          border-color: var(--primary-color, rgba(68, 138, 255, 0.7));
           transform: translateY(-1px);
         }
         .todo-scroll-btn:active {
           transform: scale(0.92);
+          background: var(--primary-color, #448aff);
+          color: #ffffff;
         }
+        .todo-scroll-btn.disabled,
         .todo-scroll-btn[disabled] {
-          opacity: 0.25;
-          pointer-events: none;
+          opacity: 0.35;
+          cursor: default;
+          pointer-events: auto;
         }
         :host([compact]) .todo-scroll-btn {
-          width: 24px;
-          height: 24px;
-          font-size: 10px;
+          width: 26px;
+          height: 26px;
+          font-size: 11px;
           border-radius: 6px;
         }
         .todo-roulette-btn {
@@ -3477,8 +3492,8 @@ class HouseholdScoreboardCard extends HTMLElement {
               <button id="roulette-header-btn" class="todo-roulette-btn" title="Aufgaben-Roulette: Wer ist dran?">
                 <span>🎲</span> Wer ist dran?
               </button>
-              <button id="todo-scroll-up-btn" class="todo-scroll-btn" title="Nach oben scrollen" style="display: none;">▲</button>
-              <button id="todo-scroll-down-btn" class="todo-scroll-btn" title="Nach unten scrollen" style="display: none;">▼</button>
+              <button id="todo-scroll-up-btn" class="todo-scroll-btn" title="Nach oben scrollen">▲</button>
+              <button id="todo-scroll-down-btn" class="todo-scroll-btn" title="Nach unten scrollen">▼</button>
               <span id="todo-counter-badge" class="todo-counter-badge"></span>
             </div>
           </div>
@@ -3563,22 +3578,40 @@ class HouseholdScoreboardCard extends HTMLElement {
     const todoSection = this.shadowRoot.getElementById('todo-section');
     const scrollUpBtn = this.shadowRoot.getElementById('todo-scroll-up-btn');
     const scrollDownBtn = this.shadowRoot.getElementById('todo-scroll-down-btn');
-    if (scrollUpBtn) {
-      scrollUpBtn.addEventListener('click', (e) => {
+    
+    let lastScrollTime = 0;
+    const triggerScroll = (amount, e) => {
+      if (e) {
         e.stopPropagation();
-        if (todoSection) todoSection.scrollBy({ top: -140, behavior: 'smooth' });
-      });
+        if (e.cancelable) e.preventDefault();
+      }
+      const now = Date.now();
+      if (now - lastScrollTime < 120) return;
+      lastScrollTime = now;
+      if (!todoSection) return;
+      this._forwardHaptic('light');
+      try {
+        todoSection.scrollBy({ top: amount, behavior: 'smooth' });
+      } catch (err) {
+        todoSection.scrollTop += amount;
+      }
+      setTimeout(() => this._updateScrollButtons(), 80);
+      setTimeout(() => this._updateScrollButtons(), 300);
+    };
+
+    if (scrollUpBtn) {
+      scrollUpBtn.addEventListener('click', (e) => triggerScroll(-160, e));
+      scrollUpBtn.addEventListener('touchend', (e) => triggerScroll(-160, e), { passive: false });
     }
     if (scrollDownBtn) {
-      scrollDownBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (todoSection) todoSection.scrollBy({ top: 140, behavior: 'smooth' });
-      });
+      scrollDownBtn.addEventListener('click', (e) => triggerScroll(160, e));
+      scrollDownBtn.addEventListener('touchend', (e) => triggerScroll(160, e), { passive: false });
     }
     if (todoSection) {
       this._setupTouchScroll(todoSection);
       todoSection.addEventListener('scroll', () => this._updateScrollButtons());
     }
+    this._updateScrollButtons();
 
     this._updateData();
   }
@@ -3817,6 +3850,7 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       card_max_height: '',
       todo_max_height: '',
       always_scroll: false,
+      show_scroll_buttons: true,
       compact: false,
       players: [],
       ...config
@@ -4588,6 +4622,17 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
 
           <div class="toggle-row">
             <div class="toggle-info">
+              <div class="toggle-title">🔼 Scroll-Pfeile anzeigen (▲ / ▼)</div>
+              <div class="toggle-desc">Aktiviert Touch-Pfeile im Header zum bequemen Scrollen der Aufgabenliste (ideal für Touchscreens & Smart Displays).</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-scroll-buttons" ${this._config.show_scroll_buttons !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
               <div class="toggle-title">Siegertreppchen (Podium) anzeigen</div>
               <div class="toggle-desc">Animierte Treppchen-Darstellung der Top 3 mit Kronen und Medaillen.</div>
             </div>
@@ -4816,6 +4861,10 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const alwaysScrollToggle = this.shadowRoot.getElementById('cfg-always-scroll');
     if (alwaysScrollToggle) {
       alwaysScrollToggle.addEventListener('change', (ev) => this._updateConfig({ always_scroll: ev.target.checked }));
+    }
+    const scrollButtonsToggle = this.shadowRoot.getElementById('cfg-show-scroll-buttons');
+    if (scrollButtonsToggle) {
+      scrollButtonsToggle.addEventListener('change', (ev) => this._updateConfig({ show_scroll_buttons: ev.target.checked }));
     }
     const podiumToggle = this.shadowRoot.getElementById('cfg-show-podium');
     if (podiumToggle) {
