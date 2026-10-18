@@ -6,7 +6,7 @@
  * License: MIT
  */
 
-const CARD_VERSION = '1.4.6';
+const CARD_VERSION = '1.4.7';
 
 console.info(
   `%c 🏆 HOUSEHOLD-SCOREBOARD-CARD %c v${CARD_VERSION} `,
@@ -211,6 +211,7 @@ class HouseholdScoreboardCard extends HTMLElement {
       todo_max_height: '',
       always_scroll: false,
       show_scroll_buttons: true,
+      show_header: true,
       compact: false,
       show_streaks: true,
       show_task_icons: true,
@@ -225,6 +226,18 @@ class HouseholdScoreboardCard extends HTMLElement {
       this.setAttribute('compact', '');
     } else {
       this.removeAttribute('compact');
+    }
+
+    if (this._config.show_header === false) {
+      this.setAttribute('no-header', '');
+    } else {
+      this.removeAttribute('no-header');
+    }
+
+    if (this._config.show_todo === false || !this._config.todo_entity) {
+      this.setAttribute('no-todo', '');
+    } else {
+      this.removeAttribute('no-todo');
     }
 
     this._render();
@@ -2077,6 +2090,16 @@ class HouseholdScoreboardCard extends HTMLElement {
           min-height: 0;
           height: 100%;
         }
+        :host([no-header]) .header {
+          display: none !important;
+        }
+        :host([no-header]) #todo-wrapper {
+          margin-top: 0 !important;
+        }
+        :host([no-todo]) .podium-container {
+          margin: auto 0 !important;
+          padding-bottom: 24px;
+        }
         ha-card {
           position: relative;
           overflow: hidden;
@@ -3647,6 +3670,22 @@ class HouseholdScoreboardCard extends HTMLElement {
     }
 
     // Header
+    const headerEl = this.shadowRoot.querySelector('.header');
+    if (headerEl) {
+      headerEl.style.display = this._config.show_header !== false ? 'block' : 'none';
+    }
+    if (this._config.show_header === false) {
+      this.setAttribute('no-header', '');
+    } else {
+      this.removeAttribute('no-header');
+    }
+
+    if (this._config.show_todo === false || !this._config.todo_entity) {
+      this.setAttribute('no-todo', '');
+    } else {
+      this.removeAttribute('no-todo');
+    }
+
     titleEl.textContent = this._config.title || '🏆 Haushalts-Rangliste';
     if (this._config.subtitle) {
       subtitleEl.textContent = this._config.subtitle;
@@ -3851,6 +3890,7 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
       todo_max_height: '',
       always_scroll: false,
       show_scroll_buttons: true,
+      show_header: true,
       compact: false,
       players: [],
       ...config
@@ -4633,6 +4673,17 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
 
           <div class="toggle-row">
             <div class="toggle-info">
+              <div class="toggle-title">📌 Titel & Kopfzeile anzeigen</div>
+              <div class="toggle-desc">Zeigt oder verbirgt den oberen Haupttitel der Karte (ideal zum Deaktivieren bei 2-Spalten-Dashboards).</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-show-header" ${this._config.show_header !== false ? 'checked' : ''} />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
               <div class="toggle-title">Siegertreppchen (Podium) anzeigen</div>
               <div class="toggle-desc">Animierte Treppchen-Darstellung der Top 3 mit Kronen und Medaillen.</div>
             </div>
@@ -4865,6 +4916,10 @@ class HouseholdScoreboardCardEditor extends HTMLElement {
     const scrollButtonsToggle = this.shadowRoot.getElementById('cfg-show-scroll-buttons');
     if (scrollButtonsToggle) {
       scrollButtonsToggle.addEventListener('change', (ev) => this._updateConfig({ show_scroll_buttons: ev.target.checked }));
+    }
+    const headerToggle = this.shadowRoot.getElementById('cfg-show-header');
+    if (headerToggle) {
+      headerToggle.addEventListener('change', (ev) => this._updateConfig({ show_header: ev.target.checked }));
     }
     const podiumToggle = this.shadowRoot.getElementById('cfg-show-podium');
     if (podiumToggle) {
